@@ -1,0 +1,11 @@
+static char* errorFile;
+static int helpFlag;
+static char* pop3Direction;
+static char* managmentDirection;
+static char* replacementMessage;
+static char* mediaTypesCensurable[];
+static int managmentPort;
+static int localPort;
+static int originPort;
+static char* command;
+static int printInformation;
