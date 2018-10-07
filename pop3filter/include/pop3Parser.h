@@ -1,4 +1,4 @@
-#ifndef POP3_PARSER
-#define POP3_PARSER
+#ifndef POP3_PARSER_H
+#define POP3_PARSER_H
 
-#endif POP3_PARSER
+#endif
