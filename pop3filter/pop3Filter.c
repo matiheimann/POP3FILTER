@@ -93,6 +93,7 @@ void printHelp()
 	printf("-P to set the origin port\n");
 	printf("-t to set a command for extern transformations\n");
 	printf("-v to know the POP3 Filter version\n");
+	exit(0);
 }
 
 int isANumericArgument(char* value, char param)
