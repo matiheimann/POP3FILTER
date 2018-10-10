@@ -1,18 +1,15 @@
 #ifndef POP3_FILTER_H
 #define POP3_FILTER_H
 
-void setConfiguration(int argc, char* const argv[]);
-void setErrorFile(char* file);
-void printHelp();
-int isANumericArgument(char* dir, char param);
-void setPop3Direction(char* dir);
-void setManagmentDirection(char* dir);
-void setReplacementMessage(char* message);
-void addCensurableMediaType(char* mediaType);
-void setManagmentPort(char* port);
-void setLocalPort(char* port);
-void setOriginPort(char* port);
-void setCommand(char* cmd);
-void printVersion();
+#include "selector.h"
+
+/** handler del socket pasivo que atiende conexiones pop3filter */
+void
+pop3filter_passive_accept(struct selector_key *key);
+
+
+/** libera pools internos */
+void
+pop3filter_pool_destroy(void);
 
 #endif

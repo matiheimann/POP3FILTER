@@ -1,177 +1,200 @@
-#include <unistd.h>
-#include <stdint.h>
-#include <stdio.h> 
-#include <sys/socket.h> 
-#include <stdlib.h>
-#include <netinet/in.h> 
-#include <string.h>
-#include <ctype.h> 
-#include "include/pop3Filter.h"
+#include <stdio.h>
+#include <stdlib.h>  // malloc
+#include <string.h>  // memset
+#include <assert.h>  // assert
+#include <errno.h>
+#include <unistd.h>  // close
+#include <arpa/inet.h>
+
+#include "pop3filter.h"
+#include "selector.h"
+#include "stm.h"
+#include "buffer.h"
+
+#define N(x) (sizeof(x)/sizeof((x)[0]))
+
+/** maquina de estados general */
+// TODO enum pop3filter_state {};
+
+////////////////////////////////////////////////////////////////////
+// Definición de variables para cada estado
+
+/*
+ * Si bien cada estado tiene su propio struct que le da un alcance
+ * acotado, disponemos de la siguiente estructura para hacer una única
+ * alocación cuando recibimos la conexión.
+ *
+ * Se utiliza un contador de referencias (references) para saber cuando debemos
+ * liberarlo finalmente, y un pool para reusar alocaciones previas.
+ */
+struct pop3filter {
+    /** información del cliente */
+    struct sockaddr_storage       client_addr;
+    socklen_t                     client_addr_len;
+    int                           client_fd;
+
+    /** resolución de la dirección del origin server */
+    struct addrinfo              *origin_resolution;
+    /** intento actual de la dirección del origin server */
+    struct addrinfo              *origin_resolution_current;
+
+    /** información del origin server */
+    struct sockaddr_storage       origin_addr;
+    socklen_t                     origin_addr_len;
+    int                           origin_domain;
+    int                           origin_fd;
 
 
-static char* errorFile = "/dev/null";
-static uint32_t pop3Direction = INADDR_ANY;
-static uint32_t managmentDirection = INADDR_LOOPBACK;
-static char* replacementMessage = "Parte reemplazada";
-static int selectedReplacementMessage = 0;
-static char** censurableMediaTypes = NULL;
-static int censurableMediaTypesSize = 0;
-static int managmentPort = 9090;
-static int localPort = 1110;
-static int originPort = 110;
-static char* command = "";
-char* version = "1.0";
+    /** maquinas de estados */
+    struct state_machine          stm;
 
-int main(int argc, char* const argv[])
-{
-	setConfiguration(argc, argv);
-	return 0;
+    /** estados para el client_fd */
+    union {
+        // TODO
+    } client;
+    /** estados para el origin_fd */
+    union {
+        // TODO
+    } orig;
+
+    /** buffers para ser usados read_buffer, write_buffer.*/
+    uint8_t raw_buff_a[2048], raw_buff_b[2048]; // TODO definir tamaño
+    buffer read_buffer, write_buffer;
+    
+    /** cantidad de referencias a este objeto. si es uno se debe destruir */
+    unsigned references;
+
+    /** siguiente en el pool */
+    struct pop3filter *next;
+};
+
+static const unsigned  max_pool  = 50; // TODO tamaño máximo
+static unsigned        pool_size = 0;  // tamaño actual
+static struct pop3filter * pool      = 0;  // pool propiamente dicho
+
+/* declaración forward de los handlers de selección de una conexión
+ * establecida entre un cliente y el proxy.
+ */
+static void pop3filter_read   (struct selector_key *key);
+static void pop3filter_write  (struct selector_key *key);
+static void pop3filter_block  (struct selector_key *key);
+static void pop3filter_close  (struct selector_key *key);
+static const struct fd_handler pop3filter_handler = {
+    .handle_read   = pop3filter_read,
+    .handle_write  = pop3filter_write,
+    .handle_close  = pop3filter_close,
+    .handle_block  = pop3filter_block,
+};
+
+/* Intenta aceptar la nueva conexión entrante*/
+void
+pop3filter_passive_accept(struct selector_key *key) {
+    struct sockaddr_storage       client_addr;
+    socklen_t                     client_addr_len = sizeof(client_addr);
+    struct pop3filter             *state          = NULL;
+
+    const int client = accept(key->fd, (struct sockaddr*) &client_addr,
+                                                          &client_addr_len);
+    if(client == -1) {
+        goto fail;
+    }
+    if(selector_fd_set_nio(client) == -1) {
+        goto fail;
+    }
+    state = pop3filter_new(client);
+    if(state == NULL) {
+        // sin un estado, nos es imposible manejaro.
+        // tal vez deberiamos apagar accept() hasta que detectemos
+        // que se liberó alguna conexión.
+        goto fail;
+    }
+    memcpy(&state->client_addr, &client_addr, client_addr_len);
+    state->client_addr_len = client_addr_len;
+
+    if(SELECTOR_SUCCESS != selector_register(key->s, client, &pop3filter_handler,
+                                              OP_READ, state)) {
+        goto fail;
+    }
+    return ;
+fail:
+    if(client != -1) {
+        close(client);
+    }
+    pop3filter_destroy(state);
 }
 
-void setConfiguration(int argc, char* const argv[])
-{
-	char c;
-	while((c = getopt(argc, argv, "e:hl:L:m:M:o:p:P:t:v")) != -1)
-	{
-		switch(c)
-		{
-			case 'e':
-				setErrorFile(optarg);
-				break;
-			case 'h':
-				printHelp();
-				break;
-			case 'l':
-				setPop3Direction(optarg);
-				break;
-			case 'L':
-				setManagmentDirection(optarg);
-				break;
-			case 'm':
-				setReplacementMessage(optarg);
-				break;
-			case 'M':
-				addCensurableMediaType(optarg);
-				break;
-			case 'o':
-				setManagmentPort(optarg);
-				break;
-			case 'p':
-				setLocalPort(optarg);
-				break;
-			case 'P':
-				setOriginPort(optarg);
-				break;
-			case 't':
-				setCommand(optarg);
-				break;
-			case 'v':
-				printVersion();
-				break;
-			default:
-				exit(0);
-				break;
-		}
-	}
+/** crea un nuevo `struct socks5' */
+static struct pop3filter *
+pop3filter_new(int client_fd) {
+    struct pop3filter *ret;
+
+    if(pool == NULL) {
+        ret = malloc(sizeof(*ret));
+    } else {
+        ret       = pool;
+        pool      = pool->next;
+        ret->next = 0;
+    }
+    if(ret == NULL) {
+        goto finally;
+    }
+    memset(ret, 0x00, sizeof(*ret));
+
+    ret->origin_fd       = -1;
+    ret->client_fd       = client_fd;
+    ret->client_addr_len = sizeof(ret->client_addr);
+
+    //ret->stm    .initial   = HELLO_READ; TODO
+    //ret->stm    .max_state = ERROR; TODO
+    //ret->stm    .states    = socks5_describe_states(); TODO
+    stm_init(&ret->stm);
+
+    buffer_init(&ret->read_buffer,  N(ret->raw_buff_a), ret->raw_buff_a);
+    buffer_init(&ret->write_buffer, N(ret->raw_buff_b), ret->raw_buff_b);
+
+    ret->references = 1;
+finally:
+    return ret;
 }
 
-void setErrorFile(char* file)
-{
-	errorFile = file;
+/** realmente destruye */
+static void
+pop3filter_destroy_(struct pop3filter* pop3) {
+    if(pop3->origin_resolution != NULL) {
+        freeaddrinfo(pop3->origin_resolution);
+        pop3->origin_resolution = 0;
+    }
+    free(pop3);
 }
 
-void printHelp()
-{
-	printf("-e to set error file.\n");
-	printf("-h for help.\n");
-	printf("-l to set POP3 direction.\n");
-	printf("-L to set managment direction.\n");
-	printf("-m to set replacement message.\n");
-	printf("-M to add a censurable media type\n");
-	printf("-o to set the managment port\n");
-	printf("-p to set the local port\n");
-	printf("-P to set the origin port\n");
-	printf("-t to set a command for extern transformations\n");
-	printf("-v to know the POP3 Filter version\n");
-	exit(0);
+/*
+ * destruye un  `struct pop3filter', tiene en cuenta las referencias
+ * y el pool de objetos.
+ */
+static void
+pop3filter_destroy(struct pop3filter *pop3) {
+    if(pop3 == NULL) {
+        // nada para hacer
+    } else if(pop3->references == 1) {
+        if(pop3 != NULL) {
+            if(pool_size < max_pool) {
+                pop3->next = pool;
+                pool    = pop3;
+                pool_size++;
+            } else {
+                pop3filter_destroy_(pop3);
+            }
+        }
+    } else {
+        pop3->references -= 1;
+    }
 }
 
-int isANumericArgument(char* value, char param)
-{
-	int i = 0;
-	while(value[i])
-	{
-		if(!isdigit(value[i]))
-		{
-			printf("%s is not a valid argument for -%c\n", value, param);
-			exit(0);
-		}
-		i++;
-	}
-	return 1;
-}
-
-void setPop3Direction(char* dir)
-{
-	isANumericArgument(dir, 'l');
-	pop3Direction = atoi(dir);
-}
-
-void setManagmentDirection(char* dir)
-{
-	isANumericArgument(dir, 'L');
-	managmentDirection = atoi(dir);
-}
-
-void setReplacementMessage(char* message)
-{
-	if(selectedReplacementMessage == 0)
-	{
-		replacementMessage = message;
-		selectedReplacementMessage = 1;
-		return;
-	}
-	char* aux = malloc((strlen(replacementMessage) + strlen(message) + 3) * sizeof(char));
-	strcat(aux, replacementMessage);
-	strcat(aux, "\n");
-	strcat(aux, message);
-	replacementMessage = aux;
-
-}
-
-
-void addCensurableMediaType(char* mediaType)
-{
-	censurableMediaTypes = realloc(censurableMediaTypes, (censurableMediaTypesSize + 1) * sizeof(char*));
-	censurableMediaTypes[censurableMediaTypesSize] = mediaType;
-	censurableMediaTypesSize++;
-}
-
-void setManagmentPort(char* port)
-{
-	isANumericArgument(port, 'o');
-	managmentPort = atoi(port);
-}
-
-void setLocalPort(char* port)
-{
-	isANumericArgument(port, 'p');
-	localPort = atoi(port);
-}
-
-void setOriginPort(char* port)
-{
-	isANumericArgument(port, 'P');
-	originPort = atoi(port);
-}
-
-void setCommand(char* cmd)
-{
-	command = cmd;
-}
-
-void printVersion()
-{
-	printf("The version is: %s\n", version);
-	exit(0);
+void
+pop3filter_pool_destroy(void) {
+    struct pop3filter *next, *pop3;
+    for(pop3 = pool; pop3 != NULL ; pop3 = next) {
+        next = pop3->next;
+        free(pop3);
+    }
 }
