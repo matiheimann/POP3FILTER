@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <unistd.h>  // close
 #include <arpa/inet.h>
+#include <netdb.h>
 
 #include "pop3filter.h"
 #include "selector.h"
@@ -49,14 +50,17 @@ struct pop3filter {
     struct state_machine          stm;
 
     /** estados para el client_fd */
+    /* TODO
     union {
-        // TODO
+        
     } client;
+    */
     /** estados para el origin_fd */
+    /* TODO
     union {
-        // TODO
+        
     } orig;
-
+    */
     /** buffers para ser usados read_buffer, write_buffer.*/
     uint8_t raw_buff_a[2048], raw_buff_b[2048]; // TODO definir tamaño
     buffer read_buffer, write_buffer;
@@ -70,58 +74,7 @@ struct pop3filter {
 
 static const unsigned  max_pool  = 50; // TODO tamaño máximo
 static unsigned        pool_size = 0;  // tamaño actual
-static struct pop3filter * pool      = 0;  // pool propiamente dicho
-
-/* declaración forward de los handlers de selección de una conexión
- * establecida entre un cliente y el proxy.
- */
-static void pop3filter_read   (struct selector_key *key);
-static void pop3filter_write  (struct selector_key *key);
-static void pop3filter_block  (struct selector_key *key);
-static void pop3filter_close  (struct selector_key *key);
-static const struct fd_handler pop3filter_handler = {
-    .handle_read   = pop3filter_read,
-    .handle_write  = pop3filter_write,
-    .handle_close  = pop3filter_close,
-    .handle_block  = pop3filter_block,
-};
-
-/* Intenta aceptar la nueva conexión entrante*/
-void
-pop3filter_passive_accept(struct selector_key *key) {
-    struct sockaddr_storage       client_addr;
-    socklen_t                     client_addr_len = sizeof(client_addr);
-    struct pop3filter             *state          = NULL;
-
-    const int client = accept(key->fd, (struct sockaddr*) &client_addr,
-                                                          &client_addr_len);
-    if(client == -1) {
-        goto fail;
-    }
-    if(selector_fd_set_nio(client) == -1) {
-        goto fail;
-    }
-    state = pop3filter_new(client);
-    if(state == NULL) {
-        // sin un estado, nos es imposible manejaro.
-        // tal vez deberiamos apagar accept() hasta que detectemos
-        // que se liberó alguna conexión.
-        goto fail;
-    }
-    memcpy(&state->client_addr, &client_addr, client_addr_len);
-    state->client_addr_len = client_addr_len;
-
-    if(SELECTOR_SUCCESS != selector_register(key->s, client, &pop3filter_handler,
-                                              OP_READ, state)) {
-        goto fail;
-    }
-    return ;
-fail:
-    if(client != -1) {
-        close(client);
-    }
-    pop3filter_destroy(state);
-}
+static struct pop3filter * pool  = 0;  // pool propiamente dicho
 
 /** crea un nuevo `struct socks5' */
 static struct pop3filter *
@@ -156,6 +109,9 @@ pop3filter_new(int client_fd) {
 finally:
     return ret;
 }
+
+/** obtiene el struct (socks5 *) desde la llave de selección  */
+#define ATTACHMENT(key) ( (struct pop3filter *)(key)->data)
 
 /** realmente destruye */
 static void
@@ -197,4 +153,56 @@ pop3filter_pool_destroy(void) {
         next = pop3->next;
         free(pop3);
     }
+}
+
+/* declaración forward de los handlers de selección de una conexión
+ * establecida entre un cliente y el proxy.
+ */
+/* TODO
+static void pop3filter_read   (struct selector_key *key);
+static void pop3filter_write  (struct selector_key *key);
+static void pop3filter_block  (struct selector_key *key);
+static void pop3filter_close  (struct selector_key *key);
+static const struct fd_handler pop3filter_handler = {
+    .handle_read   = pop3filter_read,
+    .handle_write  = pop3filter_write,
+    .handle_close  = pop3filter_close,
+    .handle_block  = pop3filter_block,
+};*/ 
+
+/* Intenta aceptar la nueva conexión entrante*/
+void
+pop3filter_passive_accept(struct selector_key *key) {
+    struct sockaddr_storage       client_addr;
+    socklen_t                     client_addr_len = sizeof(client_addr);
+    struct pop3filter             *state          = NULL;
+
+    const int client = accept(key->fd, (struct sockaddr*) &client_addr,
+                                                          &client_addr_len);
+    if(client == -1) {
+        goto fail;
+    }
+    if(selector_fd_set_nio(client) == -1) {
+        goto fail;
+    }
+    state = pop3filter_new(client);
+    if(state == NULL) {
+        // sin un estado, nos es imposible manejaro.
+        // tal vez deberiamos apagar accept() hasta que detectemos
+        // que se liberó alguna conexión.
+        goto fail;
+    }
+    memcpy(&state->client_addr, &client_addr, client_addr_len);
+    state->client_addr_len = client_addr_len;
+    /* TODO
+    if(SELECTOR_SUCCESS != selector_register(key->s, client, &pop3filter_handler,
+                                              OP_READ, state)) {
+        goto fail;
+    }*/
+    return ;
+fail:
+    if(client != -1) {
+        close(client);
+    }
+    pop3filter_destroy(state);
 }

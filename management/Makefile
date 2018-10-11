@@ -1,1 +1,4 @@
-Makefile
+include Makefile.inc
+all:
+
+clean:

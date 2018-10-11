@@ -123,7 +123,7 @@ int main(int argc, char* const argv[])
     }
 
 	int ret = 0;
-	
+
 finally:
 	if(ss != SELECTOR_SUCCESS) {
         fprintf(stderr, "%s: %s\n", (err_msg == NULL) ? "": err_msg,

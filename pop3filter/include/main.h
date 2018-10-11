@@ -9,7 +9,7 @@ void setPop3Direction(char* dir);
 void setManagmentDirection(char* dir);
 void setReplacementMessage(char* message);
 void addCensurableMediaType(char* mediaType);
-void setManagmentPort(char* port);
+void setManagementPort(char* port);
 void setLocalPort(char* port);
 void setOriginPort(char* port);
 void setCommand(char* cmd);
