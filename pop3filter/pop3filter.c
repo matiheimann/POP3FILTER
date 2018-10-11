@@ -15,7 +15,7 @@
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
 /** maquina de estados general */
-// TODO enum pop3filter_state {};
+// TODO: enum pop3filter_state {};
 
 ////////////////////////////////////////////////////////////////////
 // Definición de variables para cada estado
@@ -28,6 +28,7 @@
  * Se utiliza un contador de referencias (references) para saber cuando debemos
  * liberarlo finalmente, y un pool para reusar alocaciones previas.
  */
+// TODO:
 struct pop3filter {
     /** información del cliente */
     struct sockaddr_storage       client_addr;
@@ -50,19 +51,19 @@ struct pop3filter {
     struct state_machine          stm;
 
     /** estados para el client_fd */
-    /* TODO
+    /* TODO:
     union {
         
     } client;
     */
     /** estados para el origin_fd */
-    /* TODO
+    /* TODO:
     union {
         
     } orig;
     */
     /** buffers para ser usados read_buffer, write_buffer.*/
-    uint8_t raw_buff_a[2048], raw_buff_b[2048]; // TODO definir tamaño
+    uint8_t raw_buff_a[2048], raw_buff_b[2048]; // TODO: definir tamaño
     buffer read_buffer, write_buffer;
     
     /** cantidad de referencias a este objeto. si es uno se debe destruir */
@@ -72,7 +73,7 @@ struct pop3filter {
     struct pop3filter *next;
 };
 
-static const unsigned  max_pool  = 50; // TODO tamaño máximo
+static const unsigned  max_pool  = 50; // TODO: tamaño máximo
 static unsigned        pool_size = 0;  // tamaño actual
 static struct pop3filter * pool  = 0;  // pool propiamente dicho
 
@@ -97,9 +98,9 @@ pop3filter_new(int client_fd) {
     ret->client_fd       = client_fd;
     ret->client_addr_len = sizeof(ret->client_addr);
 
-    //ret->stm    .initial   = HELLO_READ; TODO
-    //ret->stm    .max_state = ERROR; TODO
-    //ret->stm    .states    = socks5_describe_states(); TODO
+    //ret->stm    .initial   = HELLO_READ; TODO:
+    //ret->stm    .max_state = ERROR; TODO:
+    //ret->stm    .states    = socks5_describe_states(); TODO:
     stm_init(&ret->stm);
 
     buffer_init(&ret->read_buffer,  N(ret->raw_buff_a), ret->raw_buff_a);
@@ -158,7 +159,7 @@ pop3filter_pool_destroy(void) {
 /* declaración forward de los handlers de selección de una conexión
  * establecida entre un cliente y el proxy.
  */
-/* TODO
+/* TODO:
 static void pop3filter_read   (struct selector_key *key);
 static void pop3filter_write  (struct selector_key *key);
 static void pop3filter_block  (struct selector_key *key);
@@ -194,7 +195,7 @@ pop3filter_passive_accept(struct selector_key *key) {
     }
     memcpy(&state->client_addr, &client_addr, client_addr_len);
     state->client_addr_len = client_addr_len;
-    /* TODO
+    /* TODO:
     if(SELECTOR_SUCCESS != selector_register(key->s, client, &pop3filter_handler,
                                               OP_READ, state)) {
         goto fail;
