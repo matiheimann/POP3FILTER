@@ -23,7 +23,7 @@ sigterm_handler(const int signal) {
 
 int main(int argc, char* const argv[])
 {
-	setConfiguration(argc, argv);
+	setConfiguration(argc, argv);	
 
 	// no tenemos nada que leer de stdin
     close(0);
