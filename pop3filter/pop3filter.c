@@ -11,14 +11,96 @@
 #include "selector.h"
 #include "stm.h"
 #include "buffer.h"
+#include "options.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
+/** obtiene el struct (pop3filter *) desde la llave de selección  */
+#define ATTACHMENT(key) ( (struct pop3filter *)(key)->data)
+
 /** maquina de estados general */
-// TODO: enum pop3filter_state {};
+enum pop3filter_state {
+    /**
+     *  Inicia la conexion con el origin server
+     *
+     *  Transiciones:
+     *      - CONNECTING    una vez que se inicia la conexion
+     *      - ERROR         si no pudo iniciar la conexion
+     *
+     */
+            CONNECT,
+    /**
+     *  Espera que se establezca la conexion con el origin server
+     *
+     *  Transiciones:
+     *      - HELLO    una vez que se establecio la conexion
+     *      - ERROR      si no se pudo conectar
+     */
+            CONNECTING,
+    /**
+     *  Lee el mensaje de bienvenida del origin server
+     *
+     *  Transiciones:
+     *      - HELLO         mientras el mensaje no este completo
+     *      - ERROR         ante cualquier error (IO/parseo)
+     *
+     */
+            HELLO,
+    /**
+     *  Lee requests del cliente y las manda al origin server
+     *
+     *  Transiciones:
+     *      - REQUEST       mientras la request no este completa
+     *      - RESPONSE      cuando la request esta completa
+     *      - ERROR         ante cualquier error (IO/parseo)
+     */
+            REQUEST,
+    /**
+     *  Lee la respuesta del origin server y se la envia al cliente
+     *
+     *  Transiciones:
+     *      - RESPONSE                  mientras la respuesta no este completa
+     *      - REQUEST                   cuando la respuesta esta completa
+     *      - ERROR                     ante cualquier error (IO/parseo)
+     */
+            RESPONSE,
+    // estados terminales
+            DONE,
+            ERROR,
+};
 
 ////////////////////////////////////////////////////////////////////
 // Definición de variables para cada estado
+
+/** usado por HELLO */
+struct hello_st {
+    /** buffer utilizado para I/O */
+    buffer * wb;
+};
+
+/** usado por REQUEST */
+struct request_st {
+    /** buffer utilizado para I/O */
+    buffer                      *rb, *wb;
+
+    /* TODO
+    // parser
+    struct request              request;
+    struct request_parser       request_parser;
+    */
+
+
+};
+
+/** usado por RESPONSE */
+struct response_st {
+    buffer                      *rb, *wb;
+
+    /* TODO
+    struct request              *request;
+    struct response_parser      response_parser;
+    */
+};
 
 /*
  * Si bien cada estado tiene su propio struct que le da un alcance
@@ -28,40 +110,29 @@
  * Se utiliza un contador de referencias (references) para saber cuando debemos
  * liberarlo finalmente, y un pool para reusar alocaciones previas.
  */
-// TODO:
+
 struct pop3filter {
     /** información del cliente */
     struct sockaddr_storage       client_addr;
     socklen_t                     client_addr_len;
     int                           client_fd;
 
-    /** resolución de la dirección del origin server */
-    struct addrinfo              *origin_resolution;
-    /** intento actual de la dirección del origin server */
-    struct addrinfo              *origin_resolution_current;
-
-    /** información del origin server */
-    struct sockaddr_storage       origin_addr;
-    socklen_t                     origin_addr_len;
-    int                           origin_domain;
     int                           origin_fd;
-
 
     /** maquinas de estados */
     struct state_machine          stm;
 
     /** estados para el client_fd */
-    /* TODO:
     union {
-        
+        struct request_st         request;
     } client;
-    */
+
     /** estados para el origin_fd */
-    /* TODO:
     union {
-        
+        struct hello_st           hello;
+        struct response_st        response;
     } orig;
-    */
+    
     /** buffers para ser usados read_buffer, write_buffer.*/
     uint8_t raw_buff_a[2048], raw_buff_b[2048]; // TODO: definir tamaño
     buffer read_buffer, write_buffer;
@@ -77,7 +148,10 @@ static const unsigned  max_pool  = 50; // TODO: tamaño máximo
 static unsigned        pool_size = 0;  // tamaño actual
 static struct pop3filter * pool  = 0;  // pool propiamente dicho
 
-/** crea un nuevo `struct socks5' */
+static const struct state_definition *
+pop3filter_describe_states(void);
+
+/** crea un nuevo `struct pop3filter' */
 static struct pop3filter *
 pop3filter_new(int client_fd) {
     struct pop3filter *ret;
@@ -98,9 +172,9 @@ pop3filter_new(int client_fd) {
     ret->client_fd       = client_fd;
     ret->client_addr_len = sizeof(ret->client_addr);
 
-    //ret->stm    .initial   = HELLO_READ; TODO:
-    //ret->stm    .max_state = ERROR; TODO:
-    //ret->stm    .states    = socks5_describe_states(); TODO:
+    ret->stm    .initial   = CONNECT;
+    ret->stm    .max_state = ERROR;
+    ret->stm    .states    = pop3filter_describe_states();
     stm_init(&ret->stm);
 
     buffer_init(&ret->read_buffer,  N(ret->raw_buff_a), ret->raw_buff_a);
@@ -111,16 +185,9 @@ finally:
     return ret;
 }
 
-/** obtiene el struct (socks5 *) desde la llave de selección  */
-#define ATTACHMENT(key) ( (struct pop3filter *)(key)->data)
-
 /** realmente destruye */
 static void
 pop3filter_destroy_(struct pop3filter* pop3) {
-    if(pop3->origin_resolution != NULL) {
-        freeaddrinfo(pop3->origin_resolution);
-        pop3->origin_resolution = 0;
-    }
     free(pop3);
 }
 
@@ -159,7 +226,7 @@ pop3filter_pool_destroy(void) {
 /* declaración forward de los handlers de selección de una conexión
  * establecida entre un cliente y el proxy.
  */
-/* TODO:
+
 static void pop3filter_read   (struct selector_key *key);
 static void pop3filter_write  (struct selector_key *key);
 static void pop3filter_block  (struct selector_key *key);
@@ -169,7 +236,7 @@ static const struct fd_handler pop3filter_handler = {
     .handle_write  = pop3filter_write,
     .handle_close  = pop3filter_close,
     .handle_block  = pop3filter_block,
-};*/ 
+};
 
 /* Intenta aceptar la nueva conexión entrante*/
 void
@@ -195,15 +262,445 @@ pop3filter_passive_accept(struct selector_key *key) {
     }
     memcpy(&state->client_addr, &client_addr, client_addr_len);
     state->client_addr_len = client_addr_len;
-    /* TODO:
+
     if(SELECTOR_SUCCESS != selector_register(key->s, client, &pop3filter_handler,
-                                              OP_READ, state)) {
+                                              OP_WRITE, state)) {
         goto fail;
-    }*/
+    }
     return ;
 fail:
     if(client != -1) {
         close(client);
     }
     pop3filter_destroy(state);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// CONNECT
+////////////////////////////////////////////////////////////////////////////////
+
+static unsigned
+connect_start(struct selector_key *key)
+{
+    int sock = socket(options->originAddrInfo->ai_family, SOCK_STREAM, IPPROTO_TCP);
+
+    if (sock < 0) {
+        perror("socket() failed");
+        return ERROR;
+    }
+
+    if (selector_fd_set_nio(sock) == -1) {
+        goto error;
+    }
+
+    /* Establish the connection to the origin server */
+    if (-1 == connect(sock, 
+                    (const struct sockaddr *)options->originAddrInfo->ai_addr,
+                    options->originAddrInfo->ai_addrlen)) {
+        if(errno == EINPROGRESS) {
+            // como es no bloqueante tiene que entrar aca
+
+            // dejamos de pollear el socket del cliente
+            selector_status st = selector_set_interest_key(key, OP_NOOP);
+            if(SELECTOR_SUCCESS != st) {
+                goto error;
+            }
+
+            // esperamos la conexion en el nuevo socket
+            st = selector_register(key->s, sock, &pop3filter_handler,
+                                   OP_WRITE, key->data);
+            if(SELECTOR_SUCCESS != st) {
+                goto error;
+            }
+            ATTACHMENT(key)->references += 1;
+        } else {
+            goto error;
+        }
+    } else {
+        goto error;
+    }
+
+    return CONNECTING;
+
+error:
+    if (sock != -1) {
+        close(sock);
+    }
+    return ERROR;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// CONNECTING
+////////////////////////////////////////////////////////////////////////////////
+
+static void
+connecting_init(const unsigned state, struct selector_key *key) 
+{
+
+}
+
+static unsigned
+connecting(struct selector_key *key) 
+{
+    int error;
+    socklen_t len = sizeof(error);
+    struct pop3filter *d = ATTACHMENT(key);
+
+    d->origin_fd = key->fd;
+
+    if (getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+        const char * msg = "-ERR Connection failed.\r\n";
+        send(d->client_fd, msg, strlen(msg), 0);
+        fprintf(stderr, "Connection to origin server failed\n");
+        selector_set_interest_key(key, OP_NOOP);
+        return ERROR;
+    } else {
+        if(error == 0) {
+            d->origin_fd = key->fd;
+        } else {
+            const char * msg = "-ERR Connection failed.\r\n";
+            send(d->client_fd, msg, strlen(msg), 0);
+            fprintf(stderr, "Connection to origin server failed\n");
+            selector_set_interest_key(key, OP_NOOP);
+            return ERROR;
+        }
+    }
+
+    selector_status ss = SELECTOR_SUCCESS;
+
+    ss |= selector_set_interest_key(key, OP_READ);
+    ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_NOOP);
+
+    return SELECTOR_SUCCESS == ss ? HELLO : ERROR;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// HELLO
+////////////////////////////////////////////////////////////////////////////////
+
+/** inicializa las variables del estado HELLO */
+static void
+hello_init(const unsigned state, struct selector_key *key) 
+{
+    struct hello_st *d = &ATTACHMENT(key)->orig.hello;
+    d->wb = &(ATTACHMENT(key)->write_buffer);
+}
+
+/** Lee todos los bytes del mensaje de tipo `hello' de server_fd */
+static unsigned
+hello_read(struct selector_key *key) 
+{
+    struct hello_st *d      = &ATTACHMENT(key)->orig.hello;
+    enum pop3filter_state  ret    = HELLO;
+    uint8_t *ptr;
+    size_t  count;
+    ssize_t  n;
+
+    ptr = buffer_write_ptr(d->wb, &count);
+    const char * msg = "+OK pop3filter ready.\r\n";
+    n = strlen(msg);
+    strcpy((char *) ptr, msg);
+    buffer_write_adv(d->wb, n);
+
+    ptr = buffer_write_ptr(d->wb, &count);
+    n = recv(key->fd, ptr, count, 0);
+
+    if(n > 0) {
+        buffer_write_adv(d->wb, n);
+        selector_status ss = SELECTOR_SUCCESS;
+        ss |= selector_set_interest_key(key, OP_NOOP);
+        ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+        if (ss != SELECTOR_SUCCESS) {
+            ret = ERROR;
+        }
+    } else {
+        ret = ERROR;
+    }
+
+    return ret;
+}
+
+/** Escribe todos los bytes del mensaje `hello' en client_fd */
+static unsigned
+hello_write(struct selector_key *key) 
+{
+    struct hello_st *d = &ATTACHMENT(key)->orig.hello;
+
+    enum pop3filter_state  ret      = HELLO;
+    uint8_t *ptr;
+    size_t  count;
+    ssize_t  n;
+
+    ptr = buffer_read_ptr(d->wb, &count);
+    n = send(key->fd, ptr, count, MSG_NOSIGNAL);
+
+    if(n == -1) {
+        ret = ERROR;
+    } else {
+        buffer_read_adv(d->wb, n);
+        if(!buffer_can_read(d->wb)) {
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
+            ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+        }
+    }
+
+    return ret;
+}
+
+static void
+hello_close(const unsigned state, struct selector_key *key) {
+    
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// REQUEST
+////////////////////////////////////////////////////////////////////////////////
+
+/** inicializa las variables del estado REQUEST */
+static void
+request_init(const unsigned state, struct selector_key *key) 
+{
+    struct request_st * d = &ATTACHMENT(key)->client.request;
+    d->rb              = &(ATTACHMENT(key)->read_buffer);
+    d->wb              = &(ATTACHMENT(key)->write_buffer);
+}
+
+/** Lee la request del cliente */
+static unsigned
+request_read(struct selector_key *key) 
+{
+    struct request_st *d = &ATTACHMENT(key)->client.request;
+    enum pop3filter_state ret  = REQUEST;
+
+    buffer *b            = d->rb;
+    uint8_t *ptr;
+    size_t  count;
+    ssize_t  n;
+
+    ptr = buffer_write_ptr(b, &count);
+    n = recv(key->fd, ptr, count, 0);
+
+    if(n > 0 || buffer_can_read(b)) {
+        buffer_write_adv(b, n);
+        selector_status ss = SELECTOR_SUCCESS;
+        ss |= selector_set_interest_key(key, OP_NOOP);
+        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
+        ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+    } else {
+        ret = ERROR;
+    }
+
+    return ret;
+}
+
+/** Escribe la request en el server */
+static unsigned
+request_write(struct selector_key *key) 
+{
+    struct request_st *d = &ATTACHMENT(key)->client.request;
+    enum pop3filter_state ret      = REQUEST;
+
+    buffer *b          = d->rb;
+    uint8_t *ptr;
+    size_t  count;
+    ssize_t  n;
+
+    ptr = buffer_read_ptr(b, &count);
+    n = send(key->fd, ptr, count, MSG_NOSIGNAL);
+
+    if(n == -1) {
+        ret = ERROR;
+    } else {
+        buffer_read_adv(b, n);
+        if(!buffer_can_read(b)) {
+            if(SELECTOR_SUCCESS == selector_set_interest_key(key, OP_READ)) {
+                ret = RESPONSE;
+            } else {
+                ret = ERROR;
+            }
+        }
+    }
+
+    return ret;
+}
+
+static void
+request_close(const unsigned state, struct selector_key *key) 
+{
+
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// RESPONSE
+////////////////////////////////////////////////////////////////////////////////
+
+/** inicializa las variables del estado RESPONSE */
+static void
+response_init(const unsigned state, struct selector_key *key) 
+{
+    struct response_st * d = &ATTACHMENT(key)->orig.response;
+    d->rb                       = &ATTACHMENT(key)->read_buffer;
+    d->wb                       = &ATTACHMENT(key)->write_buffer;
+}
+
+/** Lee la respuesta del origin server */
+static unsigned
+response_read(struct selector_key *key) 
+{
+    struct response_st *d = &ATTACHMENT(key)->orig.response;
+    enum pop3filter_state ret      = RESPONSE;
+
+    buffer  *b         = d->rb;
+    uint8_t *ptr;
+    size_t  count;
+    ssize_t  n;
+
+    ptr = buffer_write_ptr(b, &count);
+    n = recv(key->fd, ptr, count, 0);
+
+    if(n > 0 || buffer_can_read(b)) {
+        buffer_write_adv(b, n);
+        selector_status ss = SELECTOR_SUCCESS;
+        ss |= selector_set_interest_key(key, OP_NOOP);
+        ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+        ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+    } else {
+        ret = ERROR;
+    }
+
+    return ret;
+}
+
+/** Escribe la respuesta en el cliente */
+static unsigned
+response_write(struct selector_key *key) 
+{
+    struct response_st *d = &ATTACHMENT(key)->orig.response;
+    enum pop3filter_state ret = RESPONSE;
+
+    buffer  *b         = d->rb;
+    uint8_t *ptr;
+    size_t  count;
+    ssize_t  n;
+
+    ptr = buffer_read_ptr(b, &count);
+    n = send(key->fd, ptr, count, MSG_NOSIGNAL);
+
+    if(n == -1) {
+        ret = ERROR;
+    } else {
+        buffer_read_adv(b, n);
+        if (!buffer_can_read(b)) {
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
+            ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+        }
+    }
+
+    return ret;
+}
+
+static void
+response_close(const unsigned state, struct selector_key *key) 
+{
+
+}
+
+/** definición de handlers para cada estado */
+static const struct state_definition client_statbl[] = {
+    {
+        .state            = CONNECT,
+        .on_write_ready   = connect_start,
+    },{
+        .state            = CONNECTING,
+        .on_arrival       = connecting_init,
+        .on_write_ready   = connecting,
+    },{
+        .state            = HELLO,
+        .on_arrival       = hello_init,
+        .on_read_ready    = hello_read,
+        .on_write_ready   = hello_write,
+        .on_departure     = hello_close,
+    },{
+        .state            = REQUEST,
+        .on_arrival       = request_init,
+        .on_read_ready    = request_read,
+        .on_write_ready   = request_write,
+        .on_departure     = request_close,
+    },{
+        .state            = RESPONSE,
+        .on_arrival       = response_init,
+        .on_read_ready    = response_read,
+        .on_write_ready   = response_write,
+        .on_departure     = response_close,
+    },{
+        .state            = DONE,
+    },{
+        .state            = ERROR,
+    }
+};
+
+static const struct state_definition *
+pop3filter_describe_states(void) {
+    return client_statbl;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Handlers top level de la conexión pasiva.
+// son los que emiten los eventos a la maquina de estados.
+static void
+pop3filter_done(struct selector_key *key);
+
+static void
+pop3filter_read(struct selector_key *key) {
+    struct state_machine *stm   = &ATTACHMENT(key)->stm;
+    const enum pop3filter_state st    = (enum pop3filter_state)stm_handler_read(stm, key);
+
+    if(ERROR == st || DONE == st) {
+        pop3filter_done(key);
+    }
+}
+
+static void
+pop3filter_write(struct selector_key *key) {
+    struct state_machine *stm   = &ATTACHMENT(key)->stm;
+    const enum pop3filter_state st    = (enum pop3filter_state)stm_handler_write(stm, key);
+
+    if(ERROR == st || DONE == st) {
+        pop3filter_done(key);
+    }
+}
+
+static void
+pop3filter_block(struct selector_key *key) {
+    struct state_machine *stm   = &ATTACHMENT(key)->stm;
+    const enum pop3filter_state st    = (enum pop3filter_state)stm_handler_block(stm, key);
+
+    if(ERROR == st || DONE == st) {
+        pop3filter_done(key);
+    }
+}
+
+static void
+pop3filter_close(struct selector_key *key) {
+    pop3filter_destroy(ATTACHMENT(key));
+}
+
+static void
+pop3filter_done(struct selector_key *key) {
+    const int fds[] = {
+            ATTACHMENT(key)->client_fd,
+            ATTACHMENT(key)->origin_fd,
+    };
+    for(unsigned i = 0; i < N(fds); i++) {
+        if(fds[i] != -1) {
+            if(SELECTOR_SUCCESS != selector_unregister_fd(key->s, fds[i])) {
+                abort();
+            }
+            close(fds[i]);
+        }
+    }
 }
