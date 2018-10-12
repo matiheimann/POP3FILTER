@@ -19,8 +19,7 @@ static uint32_t pop3Direction = INADDR_ANY;
 static uint32_t managmentDirection = INADDR_LOOPBACK;
 static char* replacementMessage = "Parte reemplazada";
 static int selectedReplacementMessage = 0;
-static char** censoredMediaTypes = NULL;
-static int censoredMediaTypesSize = 0;
+static char* censoredMediaTypes = "";
 static int managementPort = 9090;
 static int localPort = 1110;
 static int originPort = 110;
@@ -38,6 +37,13 @@ sigterm_handler(const int signal) {
 int main(int argc, char* const argv[])
 {
 	setConfiguration(argc, argv);
+	if(putenv(strcatFixString("FILTER_MSG=", replacementMessage))!= 0 || 
+		putenv(strcatFixString("FILTER_MEDIAS=", censoredMediaTypes)) != 0)
+	{
+		printf("It wasn't possible setting enviroment variables\n");
+		exit(1);
+	}
+		
 
 	// no tenemos nada que leer de stdin
     close(0);
@@ -252,20 +258,19 @@ void setReplacementMessage(char* message)
 		selectedReplacementMessage = 1;
 		return;
 	}
-	char* aux = malloc((strlen(replacementMessage) + strlen(message) + 3) * sizeof(char));
-	strcat(aux, replacementMessage);
-	strcat(aux, "\n");
-	strcat(aux, message);
-	replacementMessage = aux;
+	replacementMessage = strcatFixString(replacementMessage, "\n");
+	replacementMessage = strcatFixString(replacementMessage, message);
 
 }
 
 
 void addCensoredMediaType(char* mediaType)
 {
-	censoredMediaTypes = realloc(censoredMediaTypes, (censoredMediaTypesSize + 1) * sizeof(char*));
-	censoredMediaTypes[censoredMediaTypesSize] = mediaType;
-	censoredMediaTypesSize++;
+	if(strcmp(censoredMediaTypes, "") != 0)
+	{
+		censoredMediaTypes = strcatFixString(censoredMediaTypes, "\n");
+	}
+	censoredMediaTypes = strcatFixString(censoredMediaTypes, mediaType);
 }
 
 void setManagementPort(char* port)
@@ -295,4 +300,12 @@ void printVersion()
 {
 	printf("The version is: %s\n", version);
 	exit(0);
+}
+
+char* strcatFixString(char* s1, char* s2)
+{
+	char* aux = malloc((strlen(s1) + strlen(s2) + 1) * sizeof(char));
+	strcat(aux, s1);
+	strcat(aux, s2);
+	return aux;
 }

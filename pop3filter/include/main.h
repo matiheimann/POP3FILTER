@@ -14,5 +14,6 @@ void setLocalPort(char* port);
 void setOriginPort(char* port);
 void setCommand(char* cmd);
 void printVersion();
+char* strcatFixString(char* s1, char* s2);
 
 #endif
