@@ -186,5 +186,8 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+#Binary files
+*.o
+
 
 # End of https://www.gitignore.io/api/clion,linux,macos,windows,sublimetext,visualstudiocode
