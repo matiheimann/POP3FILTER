@@ -8,7 +8,7 @@ int isANumericArgument(char* dir, char param);
 void setPop3Direction(char* dir);
 void setManagmentDirection(char* dir);
 void setReplacementMessage(char* message);
-void addCensurableMediaType(char* mediaType);
+void addCensoredMediaType(char* mediaType);
 void setManagementPort(char* port);
 void setLocalPort(char* port);
 void setOriginPort(char* port);

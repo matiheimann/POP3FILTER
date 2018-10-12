@@ -19,8 +19,8 @@ static uint32_t pop3Direction = INADDR_ANY;
 static uint32_t managmentDirection = INADDR_LOOPBACK;
 static char* replacementMessage = "Parte reemplazada";
 static int selectedReplacementMessage = 0;
-static char** censurableMediaTypes = NULL;
-static int censurableMediaTypesSize = 0;
+static char** censoredMediaTypes = NULL;
+static int censoredMediaTypesSize = 0;
 static int managementPort = 9090;
 static int localPort = 1110;
 static int originPort = 110;
@@ -172,7 +172,7 @@ void setConfiguration(int argc, char* const argv[])
 				setReplacementMessage(optarg);
 				break;
 			case 'M':
-				addCensurableMediaType(optarg);
+				addCensoredMediaType(optarg);
 				break;
 			case 'o':
 				setManagementPort(optarg);
@@ -208,7 +208,7 @@ void printHelp()
 	printf("-l to set POP3 direction.\n");
 	printf("-L to set managment direction.\n");
 	printf("-m to set replacement message.\n");
-	printf("-M to add a censurable media type\n");
+	printf("-M to add a censored media type\n");
 	printf("-o to set the managment port\n");
 	printf("-p to set the local port\n");
 	printf("-P to set the origin port\n");
@@ -261,11 +261,11 @@ void setReplacementMessage(char* message)
 }
 
 
-void addCensurableMediaType(char* mediaType)
+void addCensoredMediaType(char* mediaType)
 {
-	censurableMediaTypes = realloc(censurableMediaTypes, (censurableMediaTypesSize + 1) * sizeof(char*));
-	censurableMediaTypes[censurableMediaTypesSize] = mediaType;
-	censurableMediaTypesSize++;
+	censoredMediaTypes = realloc(censoredMediaTypes, (censoredMediaTypesSize + 1) * sizeof(char*));
+	censoredMediaTypes[censoredMediaTypesSize] = mediaType;
+	censoredMediaTypesSize++;
 }
 
 void setManagementPort(char* port)
