@@ -14,8 +14,7 @@ typedef struct {
     uint32_t managementDirection;
     char* replacementMessage;
     int selectedReplacementMessage;
-    char** censurableMediaTypes;
-    int censurableMediaTypesSize;
+    char* censoredMediaTypes;
     int managementPort;
     int localPort;
     int originPort;
@@ -34,11 +33,13 @@ int isANumericArgument(char* dir, char param);
 void setPop3Direction(char* dir);
 void setManagementDirection(char* dir);
 void setReplacementMessage(char* message);
-void addCensurableMediaType(char* mediaType);
+void addCensoredMediaType(char* mediaType);
 void setManagementPort(char* port);
 void setLocalPort(char* port);
 void setOriginPort(char* port);
 void setCommand(char* cmd);
 void printVersion();
+char* strcatFixStrings(char* s1, char* s2);
+void setFilterEnviromentVariables(char* mediaTypesCensored, char* replacementMessage);
 
 #endif

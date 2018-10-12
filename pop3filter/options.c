@@ -23,8 +23,7 @@ void setConfiguration(int argc, char* const argv[])
 	options->managementDirection = INADDR_LOOPBACK;
 	options->replacementMessage = "Parte reemplazada";
 	options->selectedReplacementMessage = 0;
-	options->censurableMediaTypes = NULL;
-	options->censurableMediaTypesSize = 0;
+	options->censoredMediaTypes = "";
 	options->managementPort = 9090;
 	options->localPort = 1110;
 	options->originPort = 110;
@@ -32,6 +31,7 @@ void setConfiguration(int argc, char* const argv[])
 	options->version = "1.0";
 
 	char c;
+
 	while((c = getopt(argc, argv, "e:hl:L:m:M:o:p:P:t:v")) != -1)
 	{
 		switch(c)
@@ -52,7 +52,7 @@ void setConfiguration(int argc, char* const argv[])
 				setReplacementMessage(optarg);
 				break;
 			case 'M':
-				addCensurableMediaType(optarg);
+				addCensoredMediaType(optarg);
 				break;
 			case 'o':
 				setManagementPort(optarg);
@@ -74,6 +74,8 @@ void setConfiguration(int argc, char* const argv[])
 				break;
 		}
 	}
+
+	setFilterEnviromentVariables(options->censoredMediaTypes, options->replacementMessage);
 
 	if (argv[optind] == NULL) 
 	{
@@ -173,19 +175,19 @@ void setReplacementMessage(char* message)
 		options->selectedReplacementMessage = 1;
 		return;
 	}
-	char* aux = malloc((strlen(options->replacementMessage) + strlen(message) + 3) * sizeof(char));
-	strcat(aux, options->replacementMessage);
-	strcat(aux, "\n");
-	strcat(aux, message);
-	options->replacementMessage = aux;
-
+	options->replacementMessage = strcatFixStrings(options->replacementMessage, "\n");
+	options->replacementMessage = strcatFixStrings(options->replacementMessage, message); 
 }
 
-void addCensurableMediaType(char* mediaType)
+void addCensoredMediaType(char* mediaType)
 {
-	options->censurableMediaTypes = realloc(options->censurableMediaTypes, (options->censurableMediaTypesSize + 1) * sizeof(char*));
-	options->censurableMediaTypes[options->censurableMediaTypesSize] = mediaType;
-	options->censurableMediaTypesSize++;
+	if(strcmp(options->censoredMediaTypes, "") == 0)
+	{
+		options->censoredMediaTypes = mediaType;
+		return;
+	}
+	options->censoredMediaTypes = strcatFixStrings(options->censoredMediaTypes, ",");
+	options->censoredMediaTypes = strcatFixStrings(options->censoredMediaTypes, mediaType);
 }
 
 void setManagementPort(char* port)
@@ -215,4 +217,22 @@ void printVersion()
 {
 	printf("The version is: %s\n", options->version);
 	exit(0);
+}
+
+char* strcatFixStrings(char* s1, char* s2)
+{
+	char* aux = malloc((strlen(s1) + strlen(s2) + 1) * sizeof(char));
+	strcat(aux, s1);
+	strcat(aux, s2);
+	return aux;
+}
+
+void setFilterEnviromentVariables(char* mediaTypesCensored, char* replacementMessage)
+{
+	if(putenv(strcatFixStrings("FILTER_MEDIAS=", mediaTypesCensored)) != 0 ||
+		putenv(strcatFixStrings("FILTER_MSG=", replacementMessage)) != 0)
+	{
+		printf("Can't set enviroment variables\n");
+		exit(1);
+	}
 }
