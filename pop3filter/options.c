@@ -78,10 +78,7 @@ void setConfiguration(int argc, char* const argv[])
 	setFilterEnviromentVariables(options->censoredMediaTypes, options->replacementMessage);
 
 	if (argv[optind] == NULL) 
-	{
-  		printf("Missing origin-server argument\n");
-  		exit(0);
-	}
+  		printHelp();
 	else
 		setOriginServer(argv[optind]);
 }

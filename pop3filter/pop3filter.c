@@ -396,11 +396,13 @@ hello_read(struct selector_key *key)
     size_t  count;
     ssize_t  n;
 
+    /*
     ptr = buffer_write_ptr(d->wb, &count);
     const char * msg = "+OK pop3filter ready.\r\n";
     n = strlen(msg);
     strcpy((char *) ptr, msg);
     buffer_write_adv(d->wb, n);
+    */
 
     ptr = buffer_write_ptr(d->wb, &count);
     n = recv(key->fd, ptr, count, 0);
