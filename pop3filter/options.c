@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <signal.h>
 #include <sys/socket.h> 
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -11,6 +13,7 @@
 #include <ctype.h> 
 
 #include "options.h"
+#include "mediatypes.h"
 
 options_st * options;
 
@@ -178,6 +181,11 @@ void setReplacementMessage(char* message)
 
 void addCensoredMediaType(char* mediaType)
 {
+	if(!isValidMediaType(mediaType))
+	{
+		printf("%s is not a valid media type\n", mediaType);
+		return;
+	}
 	if(strcmp(options->censoredMediaTypes, "") == 0)
 	{
 		options->censoredMediaTypes = mediaType;
@@ -207,7 +215,16 @@ void setOriginPort(char* port)
 
 void setCommand(char* cmd)
 {
-	options->command = cmd;
+	if(isValidFile(cmd))
+	{
+		options->command = cmd;	
+	}
+	else
+	{
+		printf("%s is not a valid file to use as command\n", cmd);
+		exit(1);
+	}
+	
 }
 
 void printVersion()
@@ -232,4 +249,12 @@ void setFilterEnviromentVariables(char* mediaTypesCensored, char* replacementMes
 		printf("Can't set enviroment variables\n");
 		exit(1);
 	}
+}
+
+int isValidFile(char* file)
+{
+	struct stat fileStat;
+	stat(file, &fileStat);
+	//Check if the file passed as argument is a Directory or a non executable file
+	return (S_ISREG(fileStat.st_mode) && access(file, X_OK) != -1) ? 1 : 0;
 }
