@@ -14,6 +14,6 @@ mediatypesfilter:
 clean:
 	cd pop3filter; make clean
 	cd management; make clean
-	cd mediatypesfilter; make all
+	cd mediatypesfilter; make clean
 
 .PHONY: all clean fromzero pop3filter management
