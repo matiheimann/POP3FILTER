@@ -8,6 +8,11 @@ int isValidMediaType(char* mediatype)
 	int i = 0;
 	int slash = 0;
 
+	if(strcmp("*/*", mediatype) == 0)
+	{
+		return 1;
+	}
+
 	while(mediatype[i] != 0)
 	{
 		if(!isalpha(mediatype[i]))
