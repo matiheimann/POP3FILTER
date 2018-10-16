@@ -12,7 +12,7 @@ int isValidMediaType(char* mediatype)
 
 	while(mediatype[i] != 0)
 	{
-		if(!isalpha(mediatype[i]))
+		if(!isalnum(mediatype[i]))
 		{
 			if(slash)
 			{
@@ -88,3 +88,4 @@ int isValidMediaType(char* mediatype)
 
 	return 1;
 }
+
