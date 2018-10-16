@@ -27,6 +27,7 @@ mediatypetree* initializeTree();
 treenodeADT addMediaTypeToTree(treenode* n, char* mediatype);
 void printTree(treenode* n, int size);
 int getTypeLength(char* mt);
+int isCensored(char* mediatype, treenodeADT n);
 
 #endif
 

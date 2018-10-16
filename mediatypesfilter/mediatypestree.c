@@ -118,3 +118,35 @@ int getTypeLength(char* mt)
 	}
 	return i;
 }
+
+int isCensored(char* mediatype, treenodeADT n)
+{
+	if(n->wildcard == 1 || mediatype[0] == 0)
+	{
+		return 1;
+	}
+
+	if(mediatype[0] == '*')
+	{
+		return 0;
+	}
+
+	if(n->children == NULL)
+	{
+		return 0;
+	}
+
+	int length = getTypeLength(mediatype);
+
+	for(int i = 0; i < n->sons; i++)
+	{
+		if(strncmp(mediatype, n->children[i]->value, length) == 0 && 
+			strlen(n->children[i]->value) == (unsigned long)length)
+		{
+			return isCensored(mediatype + length + 1, n->children[i]);
+		}
+	}
+
+	return 0;
+
+}

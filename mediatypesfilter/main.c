@@ -14,7 +14,6 @@ int main(int argc, char  *argv[])
 	mediatypetree* tree = initializeTree();
 	//addMediaTypesToTree(censoredMediaTypes, tree);
 	addMediaTypesToTree(argv[1], tree);
-	printTree(tree->root, 0);
 	return 0;
 }
 
@@ -25,6 +24,7 @@ void addMediaTypesToTree(char* mediatypes, mediatypetree* tree)
 	{
 		char* mt = getNextMediaType(&i, mediatypes);
 		tree->root=addMediaTypeToTree(tree->root, mt);
+		printf("%d\n", isCensored("text/plain", tree->root));
 	}
 }
 
