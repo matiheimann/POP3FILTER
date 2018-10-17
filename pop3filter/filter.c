@@ -27,7 +27,6 @@ const struct fd_handler mailFilterHandler = {
 //Handler que se llama al leer el pipe por donde esta el mail filtrado
 void readFilteredMail(struct selector_key *key)
 {
-	printf("EN EL HANDLER\n");
 	char buff[500] = {0};
 	read(key->fd, buff, 500);
 	printf("Mail filtrado: %s\n", buff);
@@ -103,8 +102,6 @@ void* executeFilter(void* arguments)
 		dup2(args->childToParentPipeWrite, STDOUT_FILENO);
 		
 		execl(command, command, (char*)NULL);
-
-        exit(EXIT_SUCCESS);
 	} 
 
 	write(args->parentToChildPipeWrite, mail, strlen(mail));
