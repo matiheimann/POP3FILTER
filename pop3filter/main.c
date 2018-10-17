@@ -55,7 +55,6 @@ int main(int argc, char* const argv[])
 	setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
 	setsockopt(managementServer, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
 
-
 	if(bind(server, (struct sockaddr*) &addr, sizeof(addr)) < 0 || bind(managementServer, (struct sockaddr*) &mAddr, sizeof(mAddr)) < 0) {
         err_msg = "unable to bind socket";
         goto finally;

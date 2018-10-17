@@ -30,7 +30,7 @@ void setConfiguration(int argc, char* const argv[])
 	options->managementPort = 9090;
 	options->localPort = 1110;
 	options->originPort = 110;
-	options->command = "";
+	options->command = "cat";
 	options->version = "1.0";
 
 	char c;
