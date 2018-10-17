@@ -106,6 +106,7 @@ struct request_st {
 struct response_st {
     buffer                      *rb, *wb;
     int isMail;
+    int isQuit;
 
     /* TODO
     struct request              *request;
@@ -632,10 +633,18 @@ request_write(struct selector_key *key)
     if(n == -1) {
         ret = ERROR;
     } else {
-        if (strncasecmp((char*)ptr, "RETR ", 5) == 0)
+        if (strncasecmp((char*)ptr, "RETR", 4) == 0) {
             ATTACHMENT(key)->orig.response.isMail = 1;
-        else
+            ATTACHMENT(key)->orig.response.isQuit = 0;
+        }
+        else if (strncasecmp((char*)ptr, "QUIT", 4) == 0) {
             ATTACHMENT(key)->orig.response.isMail = 0;
+            ATTACHMENT(key)->orig.response.isQuit = 1;
+        }
+        else {
+            ATTACHMENT(key)->orig.response.isMail = 0;
+            ATTACHMENT(key)->orig.response.isQuit = 0;
+        }
         buffer_read_adv(b, n);
         if(!buffer_can_read(b)) {
             if(SELECTOR_SUCCESS == selector_set_interest_key(key, OP_READ)) {
@@ -743,6 +752,9 @@ response_write(struct selector_key *key)
                 ATTACHMENT(key)->filter_out_fds[0] = -1;
                 ATTACHMENT(key)->filter_out_fds[1] = -1;
                 wait(NULL);
+            }
+            else if (d->isQuit) {
+                return DONE;
             }
 
             selector_status ss = SELECTOR_SUCCESS;
