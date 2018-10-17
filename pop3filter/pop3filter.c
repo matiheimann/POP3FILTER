@@ -12,6 +12,7 @@
 #include "stm.h"
 #include "buffer.h"
 #include "options.h"
+#include "filter.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -571,6 +572,8 @@ response_read(struct selector_key *key)
     } else {
         ret = ERROR;
     }
+
+    filterMail(key->s, "Test", "/bin/cat");
 
     return ret;
 }
