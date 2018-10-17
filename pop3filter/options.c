@@ -89,31 +89,6 @@ void setConfiguration(int argc, char* const argv[])
 void setOriginServer(char* server)
 {
 	options->originServer = server;
-	resolv_address(options->originServer, options->originPort, &options->originAddrInfo);
-}
-
-void resolv_address(char *address, uint16_t port, struct addrinfo ** addrinfo) 
-{
-    struct addrinfo hints = {
-            .ai_family    = AF_UNSPEC,    /* Allow IPv4 or IPv6 */
-            .ai_socktype  = SOCK_STREAM,  /* Datagram socket */
-            .ai_flags     = AI_PASSIVE,   /* For wildcard IP address */
-            .ai_protocol  = 0,            /* Any protocol */
-            .ai_canonname = NULL,
-            .ai_addr      = NULL,
-            .ai_next      = NULL,
-    };
-
-    char buff[7];
-    snprintf(buff, sizeof(buff), "%d", port);
-
-    printf("Resolving \"%s\" ip...\n", address);
-    if (0 != getaddrinfo(address, buff, &hints, addrinfo)) {
-        fprintf(stderr,"Domain name resolution error\n");
-        exit(0);
-    }
-    printf("Domain name resolved with success\n");
-
 }
 
 void setErrorFile(char* file)

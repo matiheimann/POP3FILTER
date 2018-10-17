@@ -2,13 +2,9 @@
 #define OPTIONS_H
 
 #include <stdint.h>
-#include <netinet/in.h>
 
 typedef struct {
     char* originServer;
-
-    struct addrinfo * originAddrInfo;
-
     char* errorFile;
     uint32_t pop3Direction;
     uint32_t managementDirection;
@@ -26,7 +22,6 @@ extern options_st * options;
 
 void setConfiguration(int argc, char* const argv[]);
 void setOriginServer(char* server);
-void resolv_address(char *address, uint16_t port, struct addrinfo ** addrinfo);
 void setErrorFile(char* file);
 void printHelp();
 int isANumericArgument(char* dir, char param);

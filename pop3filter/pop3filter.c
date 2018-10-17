@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/wait.h>
+#include <pthread.h>
 
 #include "pop3filter.h"
 #include "selector.h"
@@ -133,6 +134,13 @@ struct pop3filter {
     socklen_t                     client_addr_len;
     int                           client_fd;
 
+    /** resolución de la dirección del origin server */
+    struct addrinfo              *origin_resolution;
+
+    /** información del origin server */
+    struct sockaddr_storage       origin_addr;
+    socklen_t                     origin_addr_len;
+    int                           origin_domain;
     int                           origin_fd;
 
     int filter_in_fds[2];
@@ -303,14 +311,94 @@ fail:
 // CONNECT
 ////////////////////////////////////////////////////////////////////////////////
 
+static void *
+connect_resolv_blocking(void *data);
+
+// Comienza la resolucion de nombre en un thread aparte.
 static unsigned
-connect_start(struct selector_key *key)
+connect_start(struct selector_key *key) {
+    enum pop3filter_state  ret;
+    pthread_t tid;
+
+    struct selector_key* k = malloc(sizeof(*key));
+    if(k == NULL) {
+        perror("resolv() failed");
+        ret = ERROR;
+    }
+    else {
+        memcpy(k, key, sizeof(*k));
+        if(-1 == pthread_create(&tid, 0, connect_resolv_blocking, k)) {
+            perror("resolv() failed");
+            ret = ERROR;
+        } 
+        else  {
+            ret = CONNECT;
+            selector_set_interest_key(key, OP_NOOP);
+        }
+    }
+
+    return ret;
+}
+
+/**
+ * Realiza la resolución de DNS bloqueante.
+ *
+ * Una vez resuelto notifica al selector para que el evento esté
+ * disponible en la próxima iteración.
+ */
+static void *
+connect_resolv_blocking(void *data) {
+    struct selector_key *key = (struct selector_key *) data;
+    struct pop3filter       *p   = ATTACHMENT(key);
+
+    pthread_detach(pthread_self());
+    p->origin_resolution = 0;
+    struct addrinfo hints = {
+        .ai_family    = AF_UNSPEC,    /* Allow IPv4 or IPv6 */
+        .ai_socktype  = SOCK_STREAM,  /* Datagram socket */
+        .ai_flags     = AI_PASSIVE,   /* For wildcard IP address */
+        .ai_protocol  = 0,            /* Any protocol */
+        .ai_canonname = NULL,
+        .ai_addr      = NULL,
+        .ai_next      = NULL,
+    };
+
+    char buff[7];
+    snprintf(buff, sizeof(buff), "%d", options->originPort);
+
+    getaddrinfo(options->originServer, buff, &hints,
+               &p->origin_resolution);
+
+    selector_notify_block(key->s, key->fd);
+
+    free(data);
+
+    return 0;
+}
+
+static unsigned
+connect_resolv_done(struct selector_key *key)
 {
-    int sock = socket(options->originAddrInfo->ai_family, SOCK_STREAM, IPPROTO_TCP);
+    struct pop3filter       *p   = ATTACHMENT(key);
+
+    if(p->origin_resolution == 0) {
+        perror("resolv() failed");
+        goto error;
+    }
+
+    p->origin_domain   = p->origin_resolution->ai_family;
+    p->origin_addr_len = p->origin_resolution->ai_addrlen;
+    memcpy(&p->origin_addr,
+            p->origin_resolution->ai_addr,
+            p->origin_resolution->ai_addrlen);
+    freeaddrinfo(p->origin_resolution);
+    p->origin_resolution = 0;
+
+    int sock = socket(p->origin_domain, SOCK_STREAM, IPPROTO_TCP);
 
     if (sock < 0) {
         perror("socket() failed");
-        return ERROR;
+        goto error;
     }
 
     if (selector_fd_set_nio(sock) == -1) {
@@ -319,8 +407,8 @@ connect_start(struct selector_key *key)
 
     /* Establish the connection to the origin server */
     if (-1 == connect(sock, 
-                    (const struct sockaddr *)options->originAddrInfo->ai_addr,
-                    options->originAddrInfo->ai_addrlen)) {
+                    (const struct sockaddr *)&p->origin_addr,
+                    p->origin_addr_len)) {
         if(errno == EINPROGRESS) {
             // como es no bloqueante tiene que entrar aca
 
@@ -772,6 +860,7 @@ static const struct state_definition client_statbl[] = {
     {
         .state            = CONNECT,
         .on_write_ready   = connect_start,
+        .on_block_ready   = connect_resolv_done,
     },{
         .state            = CONNECTING,
         .on_arrival       = connecting_init,
