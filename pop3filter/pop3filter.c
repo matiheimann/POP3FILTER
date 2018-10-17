@@ -204,6 +204,11 @@ pop3filter_new(int client_fd) {
     ret->client_fd       = client_fd;
     ret->client_addr_len = sizeof(ret->client_addr);
 
+    ret->filter_in_fds[0] = -1;
+    ret->filter_in_fds[1] = -1;
+    ret->filter_out_fds[0] = -1;
+    ret->filter_out_fds[1] = -1;
+
     ret->stm    .initial   = CONNECT;
     ret->stm    .max_state = ERROR;
     ret->stm    .states    = pop3filter_describe_states();
@@ -624,14 +629,13 @@ request_write(struct selector_key *key)
     ptr = buffer_read_ptr(b, &count);
     n = send(key->fd, ptr, count, MSG_NOSIGNAL);
 
-    if (strncasecmp((char*)ptr, "RETR ", 5) == 0)
-        ATTACHMENT(key)->orig.response.isMail = 1;
-    else
-        ATTACHMENT(key)->orig.response.isMail = 0;
-
     if(n == -1) {
         ret = ERROR;
     } else {
+        if (strncasecmp((char*)ptr, "RETR ", 5) == 0)
+            ATTACHMENT(key)->orig.response.isMail = 1;
+        else
+            ATTACHMENT(key)->orig.response.isMail = 0;
         buffer_read_adv(b, n);
         if(!buffer_can_read(b)) {
             if(SELECTOR_SUCCESS == selector_set_interest_key(key, OP_READ)) {
@@ -734,6 +738,10 @@ response_write(struct selector_key *key)
             if (d->isMail) {
                 selector_unregister_fd(key->s, ATTACHMENT(key)->filter_in_fds[1]);
                 selector_unregister_fd(key->s, ATTACHMENT(key)->filter_out_fds[0]);
+                ATTACHMENT(key)->filter_in_fds[0] = -1;
+                ATTACHMENT(key)->filter_in_fds[1] = -1;
+                ATTACHMENT(key)->filter_out_fds[0] = -1;
+                ATTACHMENT(key)->filter_out_fds[1] = -1;
                 wait(NULL);
             }
 
