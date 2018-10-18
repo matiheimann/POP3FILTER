@@ -637,18 +637,6 @@ request_write(struct selector_key *key)
     if(n == -1) {
         ret = ERROR;
     } else {
-        if (strncasecmp((char*)ptr, "RETR", 4) == 0) {
-            ATTACHMENT(key)->orig.response.isMail = 1;
-            ATTACHMENT(key)->orig.response.isQuit = 0;
-        }
-        else if (strncasecmp((char*)ptr, "QUIT", 4) == 0) {
-            ATTACHMENT(key)->orig.response.isMail = 0;
-            ATTACHMENT(key)->orig.response.isQuit = 1;
-        }
-        else {
-            ATTACHMENT(key)->orig.response.isMail = 0;
-            ATTACHMENT(key)->orig.response.isQuit = 0;
-        }
         buffer_read_adv(b, n);
         if (n == MAX_BUFFER && poll(&(struct pollfd){ .fd = ATTACHMENT(key)->client_fd, .events = POLLIN }, 1, 0) == 1) {
             selector_status ss = SELECTOR_SUCCESS;
@@ -657,6 +645,18 @@ request_write(struct selector_key *key)
             ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
         }
         else if (!buffer_can_read(b)) {
+            if (strncasecmp((char*)ptr, "RETR", 4) == 0) {
+                ATTACHMENT(key)->orig.response.isMail = 1;
+                ATTACHMENT(key)->orig.response.isQuit = 0;
+            }
+            else if (strncasecmp((char*)ptr, "QUIT", 4) == 0) {
+                ATTACHMENT(key)->orig.response.isMail = 0;
+                ATTACHMENT(key)->orig.response.isQuit = 1;
+            }
+            else {
+                ATTACHMENT(key)->orig.response.isMail = 0;
+                ATTACHMENT(key)->orig.response.isQuit = 0;
+            }
             if(SELECTOR_SUCCESS == selector_set_interest_key(key, OP_READ)) {
                 ret = RESPONSE;
             } else {
