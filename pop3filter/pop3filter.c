@@ -97,6 +97,7 @@ struct hello_st {
 struct request_st {
     /** buffer utilizado para I/O */
     buffer                      *b;
+    int isNew;
 
     /* TODO
     // parser
@@ -568,6 +569,7 @@ hello_write(struct selector_key *key)
             ss |= selector_set_interest_key(key, OP_NOOP);
             ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
             ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+            ATTACHMENT(key)->client.request.isNew = 1;
         }
     }
 
@@ -638,25 +640,28 @@ request_write(struct selector_key *key)
         ret = ERROR;
     } else {
         buffer_read_adv(b, n);
-        if (n == MAX_BUFFER && poll(&(struct pollfd){ .fd = ATTACHMENT(key)->client_fd, .events = POLLIN }, 1, 0) == 1) {
-            selector_status ss = SELECTOR_SUCCESS;
-            ss |= selector_set_interest_key(key, OP_NOOP);
-            ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
-            ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
-        }
-        else if (!buffer_can_read(b)) {
+        if (d->isNew) {
             if (strncasecmp((char*)ptr, "RETR", 4) == 0) {
                 ATTACHMENT(key)->orig.response.isMail = 1;
                 ATTACHMENT(key)->orig.response.isQuit = 0;
             }
-            else if (strncasecmp((char*)ptr, "QUIT", 4) == 0) {
+                else if (strncasecmp((char*)ptr, "QUIT", 4) == 0) {
                 ATTACHMENT(key)->orig.response.isMail = 0;
                 ATTACHMENT(key)->orig.response.isQuit = 1;
             }
             else {
                 ATTACHMENT(key)->orig.response.isMail = 0;
                 ATTACHMENT(key)->orig.response.isQuit = 0;
-            }
+            }       
+        }
+        if (n == MAX_BUFFER && poll(&(struct pollfd){ .fd = ATTACHMENT(key)->client_fd, .events = POLLIN }, 1, 0) == 1) {
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
+            ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+            d->isNew = 0;
+        }
+        else if (!buffer_can_read(b)) {
             if(SELECTOR_SUCCESS == selector_set_interest_key(key, OP_READ)) {
                 ret = RESPONSE;
             } else {
@@ -809,6 +814,7 @@ response_write(struct selector_key *key)
                 ss |= selector_set_interest_key(key, OP_NOOP);
                 ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
                 ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+                ATTACHMENT(key)->client.request.isNew = 1;
             }
         }
     }
