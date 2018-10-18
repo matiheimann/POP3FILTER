@@ -9,6 +9,7 @@
 #include <netdb.h>
 #include <sys/wait.h>
 #include <pthread.h>
+#include <poll.h>
 
 #include "pop3filter.h"
 #include "selector.h"
@@ -21,7 +22,7 @@
 /** obtiene el struct (pop3filter *) desde la llave de selección  */
 #define ATTACHMENT(key) ( (struct pop3filter *)(key)->data)
 
-#define MAX_BUFFER 1024
+#define MAX_BUFFER 5
 
 /** maquina de estados general */
 enum pop3filter_state {
@@ -556,7 +557,7 @@ hello_write(struct selector_key *key)
         ret = ERROR;
     } else {
         buffer_read_adv(d->b, n);
-        if (n == MAX_BUFFER) {
+        if (n == MAX_BUFFER && poll(&(struct pollfd){ .fd = ATTACHMENT(key)->origin_fd, .events = POLLIN }, 1, 0) == 1) {
             selector_status ss = SELECTOR_SUCCESS;
             ss |= selector_set_interest_key(key, OP_NOOP);
             ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
@@ -649,7 +650,7 @@ request_write(struct selector_key *key)
             ATTACHMENT(key)->orig.response.isQuit = 0;
         }
         buffer_read_adv(b, n);
-        if (n == MAX_BUFFER) {
+        if (n == MAX_BUFFER && poll(&(struct pollfd){ .fd = ATTACHMENT(key)->client_fd, .events = POLLIN }, 1, 0) == 1) {
             selector_status ss = SELECTOR_SUCCESS;
             ss |= selector_set_interest_key(key, OP_NOOP);
             ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
@@ -779,7 +780,7 @@ response_write(struct selector_key *key)
         ret = ERROR;
     } else {
         buffer_read_adv(b, n);
-        if (n == MAX_BUFFER) {
+        if (n == MAX_BUFFER && poll(&(struct pollfd){ .fd = ATTACHMENT(key)->origin_fd, .events = POLLIN }, 1, 0) == 1) {
             selector_status ss = SELECTOR_SUCCESS;
             ss |= selector_set_interest_key(key, OP_NOOP);
             ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
