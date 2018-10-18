@@ -21,14 +21,16 @@
 /** obtiene el struct (pop3filter *) desde la llave de selección  */
 #define ATTACHMENT(key) ( (struct pop3filter *)(key)->data)
 
+#define MAX_BUFFER 1024
+
 /** maquina de estados general */
 enum pop3filter_state {
     /**
      *  Inicia la conexion con el origin server
      *
      *  Transiciones:
-     *      - CONNECTING    una vez que se inicia la conexion
-     *      - ERROR         si no pudo iniciar la conexion
+     *      - CONNECTING                una vez que se inicia la conexion
+     *      - ERROR                     si no pudo iniciar la conexion
      *
      */
             CONNECT,
@@ -36,25 +38,25 @@ enum pop3filter_state {
      *  Espera que se establezca la conexion con el origin server
      *
      *  Transiciones:
-     *      - HELLO    una vez que se establecio la conexion
-     *      - ERROR      si no se pudo conectar
+     *      - HELLO                     una vez que se establecio la conexion
+     *      - ERROR                     si no se pudo conectar
      */
             CONNECTING,
     /**
      *  Lee el mensaje de bienvenida del origin server
      *
      *  Transiciones:
-     *      - HELLO         mientras el mensaje no este completo
-     *      - ERROR         ante cualquier error (IO/parseo)
+     *      - HELLO                     mientras el mensaje no este completo
+     *      - ERROR                     ante cualquier error (IO/parseo)
      */
             HELLO,
     /**
      *  Lee requests del cliente y las manda al origin server
      *
      *  Transiciones:
-     *      - REQUEST       mientras la request no este completa
-     *      - RESPONSE      cuando la request esta completa
-     *      - ERROR         ante cualquier error (IO/parseo)
+     *      - REQUEST                   mientras la request no este completa
+     *      - RESPONSE                  cuando la request esta completa
+     *      - ERROR                     ante cualquier error (IO/parseo)
      */
             REQUEST,
     /**
@@ -87,13 +89,13 @@ enum pop3filter_state {
 /** usado por HELLO */
 struct hello_st {
     /** buffer utilizado para I/O */
-    buffer * wb;
+    buffer                      *b;
 };
 
 /** usado por REQUEST */
 struct request_st {
     /** buffer utilizado para I/O */
-    buffer                      *rb, *wb;
+    buffer                      *b;
 
     /* TODO
     // parser
@@ -104,7 +106,7 @@ struct request_st {
 
 /** usado por RESPONSE */
 struct response_st {
-    buffer                      *rb, *wb;
+    buffer                      *b;
     int isMail;
     int isQuit;
 
@@ -117,7 +119,7 @@ struct response_st {
 /** usado por FILTER */
 struct filter_st {
     /** buffer utilizado para I/O */
-    buffer                      *rb, *wb;
+    buffer                      *b;
 };
 
 /*
@@ -144,8 +146,12 @@ struct pop3filter {
     int                           origin_domain;
     int                           origin_fd;
 
-    int filter_in_fds[2];
-    int filter_out_fds[2];
+    /** información del proceso filter */
+
+    int                           filter_in_fds[2];
+    int                           filter_out_fds[2];
+
+    int                           filter_pid;
 
     /** maquinas de estados */
     struct state_machine          stm;
@@ -167,8 +173,8 @@ struct pop3filter {
     } orig;
     
     /** buffers para ser usados read_buffer, write_buffer.*/
-    uint8_t raw_buff_a[2048], raw_buff_b[2048]; // TODO: definir tamaño
-    buffer read_buffer, write_buffer;
+    uint8_t raw_buff[MAX_BUFFER]; // TODO: definir tamaño
+    buffer buffer;
     
     /** cantidad de referencias a este objeto. si es uno se debe destruir */
     unsigned references;
@@ -209,14 +215,14 @@ pop3filter_new(int client_fd) {
     ret->filter_in_fds[1] = -1;
     ret->filter_out_fds[0] = -1;
     ret->filter_out_fds[1] = -1;
+    ret->filter_pid = -1;
 
     ret->stm    .initial   = CONNECT;
     ret->stm    .max_state = ERROR;
     ret->stm    .states    = pop3filter_describe_states();
     stm_init(&ret->stm);
 
-    buffer_init(&ret->read_buffer,  N(ret->raw_buff_a), ret->raw_buff_a);
-    buffer_init(&ret->write_buffer, N(ret->raw_buff_b), ret->raw_buff_b);
+    buffer_init(&ret->buffer,  N(ret->raw_buff), ret->raw_buff);
 
     ret->references = 1;
 finally:
@@ -501,7 +507,7 @@ static void
 hello_init(const unsigned state, struct selector_key *key) 
 {
     struct hello_st *d = &ATTACHMENT(key)->orig.hello;
-    d->wb = &ATTACHMENT(key)->write_buffer;
+    d->b = &ATTACHMENT(key)->buffer;
 }
 
 /** Lee todos los bytes del mensaje de tipo `hello' de server_fd */
@@ -514,19 +520,11 @@ hello_read(struct selector_key *key)
     size_t  count;
     ssize_t  n;
 
-    /*
-    ptr = buffer_write_ptr(d->wb, &count);
-    const char * msg = "+OK pop3filter ready.\r\n";
-    n = strlen(msg);
-    strcpy((char *) ptr, msg);
-    buffer_write_adv(d->wb, n);
-    */
-
-    ptr = buffer_write_ptr(d->wb, &count);
+    ptr = buffer_write_ptr(d->b, &count);
     n = recv(key->fd, ptr, count, 0);
 
     if(n > 0) {
-        buffer_write_adv(d->wb, n);
+        buffer_write_adv(d->b, n);
         selector_status ss = SELECTOR_SUCCESS;
         ss |= selector_set_interest_key(key, OP_NOOP);
         ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
@@ -551,14 +549,20 @@ hello_write(struct selector_key *key)
     size_t  count;
     ssize_t  n;
 
-    ptr = buffer_read_ptr(d->wb, &count);
+    ptr = buffer_read_ptr(d->b, &count);
     n = send(key->fd, ptr, count, MSG_NOSIGNAL);
 
     if(n == -1) {
         ret = ERROR;
     } else {
-        buffer_read_adv(d->wb, n);
-        if(!buffer_can_read(d->wb)) {
+        buffer_read_adv(d->b, n);
+        if (n == MAX_BUFFER) {
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+            ret = SELECTOR_SUCCESS == ss ? HELLO : ERROR;
+        }
+        else if (!buffer_can_read(d->b)) {
             selector_status ss = SELECTOR_SUCCESS;
             ss |= selector_set_interest_key(key, OP_NOOP);
             ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
@@ -583,8 +587,7 @@ static void
 request_init(const unsigned state, struct selector_key *key) 
 {
     struct request_st * d = &ATTACHMENT(key)->client.request;
-    d->rb              = &ATTACHMENT(key)->read_buffer;
-    d->wb              = &ATTACHMENT(key)->write_buffer;
+    d->b              = &ATTACHMENT(key)->buffer;
 }
 
 /** Lee la request del cliente */
@@ -594,7 +597,7 @@ request_read(struct selector_key *key)
     struct request_st *d = &ATTACHMENT(key)->client.request;
     enum pop3filter_state ret  = REQUEST;
 
-    buffer *b            = d->rb;
+    buffer *b            = d->b;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -622,7 +625,7 @@ request_write(struct selector_key *key)
     struct request_st *d = &ATTACHMENT(key)->client.request;
     enum pop3filter_state ret      = REQUEST;
 
-    buffer *b          = d->rb;
+    buffer *b          = d->b;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -646,7 +649,13 @@ request_write(struct selector_key *key)
             ATTACHMENT(key)->orig.response.isQuit = 0;
         }
         buffer_read_adv(b, n);
-        if(!buffer_can_read(b)) {
+        if (n == MAX_BUFFER) {
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
+            ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+        }
+        else if (!buffer_can_read(b)) {
             if(SELECTOR_SUCCESS == selector_set_interest_key(key, OP_READ)) {
                 ret = RESPONSE;
             } else {
@@ -673,8 +682,7 @@ static void
 response_init(const unsigned state, struct selector_key *key) 
 {
     struct response_st * d = &ATTACHMENT(key)->orig.response;
-    d->rb                       = &ATTACHMENT(key)->read_buffer;
-    d->wb                       = &ATTACHMENT(key)->write_buffer;
+    d->b                       = &ATTACHMENT(key)->buffer;
 }
 
 /** Lee la respuesta del origin server */
@@ -684,7 +692,7 @@ response_read(struct selector_key *key)
     struct response_st *d = &ATTACHMENT(key)->orig.response;
     enum pop3filter_state ret      = RESPONSE;
 
-    buffer  *b         = d->rb;
+    buffer  *b         = d->b;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -695,17 +703,45 @@ response_read(struct selector_key *key)
     if(n > 0 || buffer_can_read(b)) {
         buffer_write_adv(b, n);
         if (d->isMail) {
-            if (pipe(ATTACHMENT(key)->filter_in_fds) == -1 ||
-                pipe(ATTACHMENT(key)->filter_out_fds) == -1 ||
-                    selector_fd_set_nio(ATTACHMENT(key)->filter_in_fds[1]) == -1 ||
-                    selector_fd_set_nio(ATTACHMENT(key)->filter_out_fds[0]) == -1) {
-                ret = ERROR;
+            if (ATTACHMENT(key)->filter_pid == -1) {
+                if (pipe(ATTACHMENT(key)->filter_in_fds) == -1 ||
+                    pipe(ATTACHMENT(key)->filter_out_fds) == -1 ||
+                        selector_fd_set_nio(ATTACHMENT(key)->filter_in_fds[1]) == -1 ||
+                        selector_fd_set_nio(ATTACHMENT(key)->filter_out_fds[0]) == -1) {
+                    ret = ERROR;
+                }
+                else {
+                    ATTACHMENT(key)->filter_pid = fork();
+                    if (ATTACHMENT(key)->filter_pid == -1) {
+                        ret = ERROR;
+                    }
+                    else if (ATTACHMENT(key)->filter_pid == 0) {
+                        close(ATTACHMENT(key)->filter_in_fds[1]);
+                        close(ATTACHMENT(key)->filter_out_fds[0]);
+
+                        dup2(ATTACHMENT(key)->filter_in_fds[0], STDIN_FILENO);
+                        dup2(ATTACHMENT(key)->filter_out_fds[1], STDOUT_FILENO);
+        
+                        execl("/bin/sh", "sh", "-c", "cat", NULL);
+                    }
+                    else {
+                        close(ATTACHMENT(key)->filter_in_fds[0]);
+                        close(ATTACHMENT(key)->filter_out_fds[1]);
+
+                        selector_status ss = SELECTOR_SUCCESS;
+                        ss |= selector_set_interest_key(key, OP_NOOP);
+                        ss |= selector_register(key->s, ATTACHMENT(key)->filter_in_fds[1], &pop3filter_handler,
+                                   OP_WRITE, key->data);
+                        ss |= selector_register(key->s, ATTACHMENT(key)->filter_out_fds[0], &pop3filter_handler,
+                                   OP_NOOP, key->data);
+                        ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
+                    }
+                }
             } 
             else {
                 selector_status ss = SELECTOR_SUCCESS;
                 ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_register(key->s, ATTACHMENT(key)->filter_in_fds[1], &pop3filter_handler,
-                                   OP_WRITE, key->data);
+                ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_in_fds[1], OP_WRITE);
                 ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
             }
         }
@@ -731,7 +767,7 @@ response_write(struct selector_key *key)
     struct response_st *d = &ATTACHMENT(key)->orig.response;
     enum pop3filter_state ret = RESPONSE;
 
-    buffer  *b         = d->rb;
+    buffer  *b         = d->b;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -743,24 +779,36 @@ response_write(struct selector_key *key)
         ret = ERROR;
     } else {
         buffer_read_adv(b, n);
-        if (!buffer_can_read(b)) {
+        if (n == MAX_BUFFER) {
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+            ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
+        }
+        else if (!buffer_can_read(b)) {
             if (d->isMail) {
+                close(ATTACHMENT(key)->filter_in_fds[1]);
+                close(ATTACHMENT(key)->filter_out_fds[0]);
                 selector_unregister_fd(key->s, ATTACHMENT(key)->filter_in_fds[1]);
                 selector_unregister_fd(key->s, ATTACHMENT(key)->filter_out_fds[0]);
                 ATTACHMENT(key)->filter_in_fds[0] = -1;
                 ATTACHMENT(key)->filter_in_fds[1] = -1;
                 ATTACHMENT(key)->filter_out_fds[0] = -1;
                 ATTACHMENT(key)->filter_out_fds[1] = -1;
-                wait(NULL);
-            }
-            else if (d->isQuit) {
-                return DONE;
+
+                waitpid(ATTACHMENT(key)->filter_pid, NULL, 0);
+                ATTACHMENT(key)->filter_pid = -1;
             }
 
-            selector_status ss = SELECTOR_SUCCESS;
-            ss |= selector_set_interest_key(key, OP_NOOP);
-            ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
-            ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+            if (d->isQuit) {
+                ret = DONE;
+            }
+            else {
+                selector_status ss = SELECTOR_SUCCESS;
+                ss |= selector_set_interest_key(key, OP_NOOP);
+                ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
+                ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+            }
         }
     }
 
@@ -782,8 +830,7 @@ static void
 filter_init(const unsigned state, struct selector_key *key) 
 {
     struct filter_st * d = &ATTACHMENT(key)->filter.filter;
-    d->rb              = &ATTACHMENT(key)->read_buffer;
-    d->wb              = &ATTACHMENT(key)->write_buffer;
+    d->b              = &ATTACHMENT(key)->buffer;
 }
 
 /** Lee el mail filtrado del stdout del filter */
@@ -793,16 +840,11 @@ filter_read(struct selector_key *key)
     struct filter_st *d = &ATTACHMENT(key)->filter.filter;
     enum pop3filter_state ret      = FILTER;
 
-    buffer  *b         = d->rb;
+    buffer  *b         = d->b;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
 
-    ptr = buffer_write_ptr(b, &count);
-    const char * msg = "THE NEXT MAIL HAS PASSED THROUGH THE FILTER:\n";
-    n = strlen(msg);
-    strcpy((char*)ptr, msg);
-    buffer_write_adv(b, n);
     ptr = buffer_write_ptr(b, &count);
     n = read(key->fd, ptr, count);
 
@@ -826,7 +868,7 @@ filter_write(struct selector_key *key)
     struct filter_st *d = &ATTACHMENT(key)->filter.filter;
     enum pop3filter_state ret = FILTER;
 
-    buffer  *b         = d->rb;
+    buffer  *b         = d->b;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -839,30 +881,10 @@ filter_write(struct selector_key *key)
     } else {
         buffer_read_adv(b, n);
         if (!buffer_can_read(b)) {
-            int pid = fork();
-            if (pid == -1) {
-                ret = ERROR;
-            }
-            else if (pid == 0) {
-                close(ATTACHMENT(key)->filter_in_fds[1]);
-                close(ATTACHMENT(key)->filter_out_fds[0]);
-
-                dup2(ATTACHMENT(key)->filter_in_fds[0], STDIN_FILENO);
-                dup2(ATTACHMENT(key)->filter_out_fds[1], STDOUT_FILENO);
-        
-                execl("/bin/sh", "sh", "-c", "cat", NULL);
-            }
-            else {
-                close(ATTACHMENT(key)->filter_in_fds[0]);
-                close(ATTACHMENT(key)->filter_in_fds[1]);
-                close(ATTACHMENT(key)->filter_out_fds[1]);
-
-                selector_status ss = SELECTOR_SUCCESS;
-                ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_register(key->s, ATTACHMENT(key)->filter_out_fds[0], &pop3filter_handler,
-                                   OP_READ, key->data);
-                ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
-            }
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_out_fds[0], OP_READ);
+            ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
         }
     }
 
@@ -959,7 +981,12 @@ pop3filter_block(struct selector_key *key) {
 
 static void
 pop3filter_close(struct selector_key *key) {
-    pop3filter_destroy(ATTACHMENT(key));
+    struct state_machine *stm   = &ATTACHMENT(key)->stm;
+    const enum pop3filter_state st    = (enum pop3filter_state)stm_state(stm);
+
+    if(ERROR == st || DONE == st) {
+        pop3filter_destroy(ATTACHMENT(key));
+    }
 }
 
 static void
