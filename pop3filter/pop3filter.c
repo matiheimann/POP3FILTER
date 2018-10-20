@@ -22,7 +22,7 @@
 /** obtiene el struct (pop3filter *) desde la llave de selección  */
 #define ATTACHMENT(key) ( (struct pop3filter *)(key)->data)
 
-#define MAX_BUFFER 5
+#define MAX_BUFFER 1024
 
 /** maquina de estados general */
 enum pop3filter_state {
@@ -728,7 +728,7 @@ response_read(struct selector_key *key)
                         dup2(ATTACHMENT(key)->filter_in_fds[0], STDIN_FILENO);
                         dup2(ATTACHMENT(key)->filter_out_fds[1], STDOUT_FILENO);
         
-                        execl("/bin/sh", "sh", "-c", "cat", NULL);
+                        execl("/bin/sh", "sh", "-c", options->command, NULL);
                     }
                     else {
                         close(ATTACHMENT(key)->filter_in_fds[0]);
