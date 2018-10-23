@@ -8,12 +8,12 @@ pop3filter:
 management:
 	cd management; make all
 
-mediatypesfilter:
-	cd mediatypesfilter; make all
+stripmime:
+	cd stripmime; make all
 
 clean:
 	cd pop3filter; make clean
 	cd management; make clean
-	cd mediatypesfilter; make clean
+	cd stripmime; make clean
 
-.PHONY: all clean fromzero pop3filter management
+.PHONY: all clean fromzero pop3filter management stripmime

@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "mediatypestree.h"
+#include "mediatypesfilter.h"
 #include "main.h"
 
 int main(int argc, char  *argv[])
@@ -25,6 +25,9 @@ int main(int argc, char  *argv[])
 	mediatypetree* tree = initializeTree();
 	//addMediaTypesToTree(censoredMediaTypes, tree);
 	addMediaTypesToTree(argv[1], tree);
+
+	filtermail(tree, filterMessage);
+
 	return 0;
 }
 
@@ -52,3 +55,4 @@ char* getNextMediaType(int* index, char* mediatypes)
 	*(index) = (mediatypes[i] != 0) ? i+1 : i;
 	return ret;
 }
+
