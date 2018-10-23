@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "mediatypesfilter.h"
 #include "stack.h"
@@ -11,12 +12,12 @@ void filteremail(mediatypetree* tree, char* filterMessage)
 	int status = NEW_LINE_HEADER;
 	char command[4096];
 	//RFC 1341 says that a boundary can't be longer than 70 characters
-	char boundary[70] = {0};
+	//char boundary[70] = {0};
 	//Max line length is 80
 	char header[80] = {0};
-	char mediatype[80] = {0};
+	//char mediatype[80] = {0};
 	int indexHeader = 0;
-	stack* boundaryStack = initStack();
+	//stack* boundaryStack = initStack();
 
 	while(status != END)
 	{
@@ -54,7 +55,8 @@ void filteremail(mediatypetree* tree, char* filterMessage)
 					}
 					else
 					{
-						header[i++] = command[i];
+						indexHeader++;
+						header[i] = command[i];
 					}		
 					break;
 
@@ -93,8 +95,6 @@ int isContentTypeHeader(char* header)
 		header[i] = tolower(header[i]);
 		i++;
 	}
-	int length = strlen("content-type");
+	unsigned int length = strlen("content-type");
 	return (strncmp(header,"content-type", length) == 0 && strlen(header) == length) ? 1 : 0;
 }
-
-int 
