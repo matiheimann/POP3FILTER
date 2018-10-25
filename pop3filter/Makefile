@@ -19,4 +19,4 @@ $(POP3FILTER): $(DEPS) $(OBJECTS)
 clean: 
 	rm -rf *.o $(POP3FILTER)
 
-.PHONY: all clean
+.PHONY: all clean fromzero

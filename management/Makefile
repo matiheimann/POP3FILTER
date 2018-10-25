@@ -19,4 +19,4 @@ $(MANAGEMENT): $(DEPS) $(OBJECTS)
 clean: 
 	rm -rf *.o $(MANAGEMENT)
 
-.PHONY: all clean
+.PHONY: all clean fromzero
