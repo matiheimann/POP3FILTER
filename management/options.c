@@ -9,6 +9,8 @@
 
 #include "options.h"
 
+options_st * options;
+
 void setConfiguration(int argc, char* const argv[])
 {
 	/* Initialize default values */
