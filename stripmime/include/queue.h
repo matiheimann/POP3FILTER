@@ -9,18 +9,19 @@ typedef struct queuenode
 	char* value;
 	queuenodeADT next;
 
-} stacknode; 
+} queuenode; 
 
 typedef struct queue
 {
 	
 	queuenodeADT first;
+	queuenodeADT last;
 
 }queue;
 
 queue* initqueue();
 char* first(queue* q);
 char* dequeue(queue* q);
-char* enqueue(queue* q, char* value);
+void enqueue(queue* q, char* value);
 
 #endif

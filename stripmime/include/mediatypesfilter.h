@@ -2,6 +2,7 @@
 #define MEDIA_TYPES_FILTER_H
 
 #include "contenttypevalidator.h"
+#include "stack.h"
 
 typedef enum states
 {

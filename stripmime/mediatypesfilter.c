@@ -5,7 +5,6 @@
 #include <unistd.h>
 
 #include "mediatypesfilter.h"
-#include "stack.h"
 #include "contenttypevalidator.h"
 
 
@@ -39,9 +38,8 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						context->ctp = malloc(sizeof(contentypevalidator));
 						context->ctp = initcontenttypevalidator(censoredMediaTypes);
 					}
-					if(matchfound == 1)
+					if(context->ctp->matchfound == 1)
 					{
-						context->censore = 1;
 					}
 					else if(context->ctp->stillValid)
 					{
@@ -67,7 +65,6 @@ ctx* initcontext(char* censoredMediaTypes)
 	context->action = NEW_LINE;
 	context->lastAction= -1;
 	context->ctp = NULL;
-	context->censore = 0;
 	return context;
 }
 

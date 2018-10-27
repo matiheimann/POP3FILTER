@@ -85,17 +85,6 @@ int checkmediatypes(contentypevalidator* ctp, char c)
 	{
 		return 0;
 	}
-	else if(c == ';' && (ctp->mediatypes[carachter] == 0 ||
-		ctp->mediatypes[carachter] == ','))
-	{
-		ctp->matchfound = 1;
-		return 1;
-	}
-	else if(c == ';')
-	{
-		ctp->stillValid = 0;
-		return 0;
-	}
 
 	ctp->stillValid = 0;
 	for(int i = 0; i < ctp->quantityMediaTypes; i++)
@@ -103,15 +92,21 @@ int checkmediatypes(contentypevalidator* ctp, char c)
 		if(ctp->isValid[i])
 		{
 			int carachter = ctp->startingIndex[i] + ctp->index;
+			if(ctp->mediatypes[carachter] == '*')
+			{
+				ctp->matchfound = 1;
+				return 1;
+			}
+			else if(c == ';' && (ctp->mediatypes[carachter] == 0 ||
+				ctp->mediatypes[carachter] == ','))
+			{
+				ctp->matchfound = 1;
+				return 1;
+			}
 			if(ctp->mediatypes[carachter] == ',' || ctp->mediatypes[carachter] == 0 ||
 				tolower(ctp->mediatypes[carachter]) != tolower(c))
 			{
 				ctp->isValid[i] = 0;
-			}
-			else if(ctp->mediatypes[carachter] == '*')
-			{
-				ctp->matchfound = 1;
-				ctp->stillValid = 1;
 			}
 			else
 			{
