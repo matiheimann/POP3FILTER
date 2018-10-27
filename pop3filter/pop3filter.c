@@ -10,6 +10,7 @@
 #include <sys/wait.h>
 #include <pthread.h>
 #include <poll.h>
+#include <time.h>
 
 #include "pop3filter.h"
 #include "selector.h"
@@ -17,6 +18,7 @@
 #include "buffer.h"
 #include "pop3_multi.h"
 #include "options.h"
+#include "iputils.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -110,7 +112,10 @@ enum request_cmd_type {
             MULTI_CAPA,
             MULTI_UIDL,
             MULTI_TOP,
+            DELE,
+            USER,
             QUIT,
+            PASS,
             DEFAULT,
 };
 
@@ -148,6 +153,12 @@ struct pop3filter {
     struct sockaddr_storage       client_addr;
     socklen_t                     client_addr_len;
     int                           client_fd;
+
+    /** información de accesos durante la sesión */
+    char*                         logged_in_username;
+    int                           top_commands;
+    int                           retr_commands;
+    int                           dele_commands;
 
     /** resolución de la dirección del origin server */
     struct addrinfo              *origin_resolution;
@@ -247,6 +258,9 @@ pop3filter_destroy_(struct pop3filter* pop3) {
     if(pop3->origin_resolution != NULL) {
         freeaddrinfo(pop3->origin_resolution);
         pop3->origin_resolution = 0;
+    }
+    if(pop3->logged_in_username != NULL) {
+        free(pop3->logged_in_username);
     }
     free(pop3);
 }
@@ -757,6 +771,19 @@ send_next_request(struct selector_key *key, buffer * b) {
     else if (strcasecmp(cmd, "QUIT") == 0 && cmd_n == 1) {
         ATTACHMENT(key)->client.request.cmd_type = QUIT;
     }
+    else if (strcasecmp(cmd, "USER") == 0 && cmd_n == 2) {
+        ATTACHMENT(key)->client.request.cmd_type = USER;
+        int username_length = strlen(arg1);
+        ATTACHMENT(key)->logged_in_username = malloc(username_length+1);
+        memcpy(ATTACHMENT(key)->logged_in_username, arg1, username_length);
+        ATTACHMENT(key)->logged_in_username[username_length] = 0;
+    }
+    else if (strcasecmp(cmd, "PASS") == 0 && cmd_n == 2) {
+        ATTACHMENT(key)->client.request.cmd_type = PASS;
+    }
+    else if (strcasecmp(cmd, "DELE") == 0 && cmd_n == 2) {
+        ATTACHMENT(key)->client.request.cmd_type = DELE;
+    }
     else {
         ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
     }
@@ -857,7 +884,36 @@ response_read(struct selector_key *key)
 
     if(n > 0 || buffer_can_read(b)) {
         buffer_write_adv(b, n);
+        if(ATTACHMENT(key)->client.request.cmd_type == PASS || ATTACHMENT(key)->client.request.cmd_type == QUIT) {
+            time_t t = time(NULL);
+            struct tm time_manager = *localtime(&t);
+            printf("On %d-%d-%d %d:%d:%d ", time_manager.tm_year + 1900, time_manager.tm_mon + 1, 
+                time_manager.tm_mday, time_manager.tm_hour, time_manager.tm_min, time_manager.tm_sec);
+
+            int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+            char* ip = malloc(ip_length);
+            memset(ip, 0x00, ip_length);
+            ip_to_string(ATTACHMENT(key)->client_addr, ip);
+
+            if (ATTACHMENT(key)->client.request.cmd_type == PASS) {
+            printf("client logged in: ip=%s, user=%s\n", ip, ATTACHMENT(key)->logged_in_username);
+            }
+            else if(ATTACHMENT(key)->client.request.cmd_type == QUIT) {
+            printf("client logged out: ip=%s, user=%s, top=%d, retr=%d, dele=%d\n", 
+                ip, ATTACHMENT(key)->logged_in_username, ATTACHMENT(key)->top_commands,
+                ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
+            }
+
+            free(ip);
+        }
+        else if(ATTACHMENT(key)->client.request.cmd_type == MULTI_TOP) {
+            ATTACHMENT(key)->top_commands++;
+        }
+        else if(ATTACHMENT(key)->client.request.cmd_type == DELE) {
+            ATTACHMENT(key)->dele_commands++;
+        }
         if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
+            ATTACHMENT(key)->retr_commands++;
             if (ATTACHMENT(key)->filter_pid == -1) {
                 if (pipe(ATTACHMENT(key)->filter_in_fds) == -1 ||
                     pipe(ATTACHMENT(key)->filter_out_fds) == -1 ||
