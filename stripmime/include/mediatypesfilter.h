@@ -1,21 +1,28 @@
 #ifndef MEDIA_TYPES_FILTER_H
 #define MEDIA_TYPES_FILTER_H
 
-#include "mediatypestree.h"
+#include "contenttypevalidator.h"
 
 typedef enum states
 {
-	END,
-	NEW_LINE_HEADER,
-	CHECKING_HEADERS,
-	CHECK_MEDIA_TYPE,
-	NEW_LINE_BODY,
-	BODY,
-	LINE_ONLY_DOT
-
+	NEW_LINE,
+	CHECKING_HEADER,
+	CHECKING_CONTENT_TYPE,
+	CHECKING_BODY
 }states;
 
-void filteremail(mediatypetree* tree, char* filterMessage);
-int isContentTypeHeader(char* header);
+typedef struct ctx
+{
+
+	int action;
+	int lastAction;
+	contentypevalidator* ctp;
+	stack* censored;
+	stack* boundaries;
+
+}ctx;
+
+void filteremail(char* cesoredMediaTypes, char* filterMessage);
+ctx* initcontext();
 
 #endif

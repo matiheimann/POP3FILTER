@@ -1,100 +1,73 @@
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "mediatypesfilter.h"
 #include "stack.h"
+#include "contenttypevalidator.h"
 
-int status;
 
-void filteremail(mediatypetree* tree, char* filterMessage)
+void filteremail(char* censoredMediaTypes, char* filterMessage)
 {
-	int status = NEW_LINE_HEADER;
-	char command[4096];
-	//RFC 1341 says that a boundary can't be longer than 70 characters
-	//char boundary[70] = {0};
-	//Max line length is 80
-	char header[80] = {0};
-	//char mediatype[80] = {0};
-	int indexHeader = 0;
-	//stack* boundaryStack = initStack();
+	ctx* context = initcontext();
 
-	while(status != END)
+	int n = 0;
+	char buffer[4096];
+	do
 	{
-		int n;
-		n = scanf("%s", command);
+		n = read(STDIN_FILENO, buffer, 4096);
 		for(int i = 0; i < n; i++)
 		{
-			switch(status)
+			switch(context->action)
 			{
-
-				case NEW_LINE_HEADER:
-					if(command[i] == '\n' || command[i] == '\r')
+				case NEW_LINE:
+					if(buffer[i] != ' ')
 					{
-						status = NEW_LINE_BODY;
-						printf("\r\n");
+						context->action = CHECKING_HEADER;
 					}
 					else
 					{
-						status = CHECKING_HEADERS;
-						printf("%c", command[i]);
+						context->action = context->lastAction;
 					}
 					break;
-
-				case CHECKING_HEADERS:
-					if(!isalpha(command[i]) || command[i] != '-')
+				case CHECKING_CONTENT_TYPE:
+					
+					if(context->ctp == NULL)
 					{
-						if(command[i] == ':')
+						context->ctp = malloc(sizeof(contentypevalidator));
+						context->ctp = initcontenttypevalidator(censoredMediaTypes);
+					}
+					if(matchfound == 1)
+					{
+						context->censore = 1;
+					}
+					else if(context->ctp->stillValid)
+					{
+						if(buffer[i] == ';')
 						{
-							if(isContentTypeHeader(header))
-							{
-								status = CHECK_MEDIA_TYPE;
-							}
-							indexHeader = 0;
+
+						}
+						else
+						{
+							checkmediatypes(context->ctp, buffer[i]);
 						}
 					}
-					else
-					{
-						indexHeader++;
-						header[i] = command[i];
-					}		
 					break;
-
-				case CHECK_MEDIA_TYPE:
-					break;
-
-				case BODY:
-					if(command[i] == '\n' || command[i] == '\r')
-						status = NEW_LINE_BODY;
-					printf("%c\n", command[i]);
-					break;
-
-				case NEW_LINE_BODY:
-					if(command[i] == '.')
-						status = LINE_ONLY_DOT;
-					else if(command[i] != '\n' && command[i] != '\r')
-						status = BODY;
-					break;
-
-				case LINE_ONLY_DOT:
-					if(command[i] == '\n' || command[i] == '\r')
-						status = END;
-					else
-						status = BODY;
-					break; 
 			}
 		}
 	}
-
+	while(n > 0);
 }
 
-int isContentTypeHeader(char* header)
+ctx* initcontext(char* censoredMediaTypes)
 {
-	int i=0;
-	while(header[i] != 0){
-		header[i] = tolower(header[i]);
-		i++;
-	}
-	unsigned int length = strlen("content-type");
-	return (strncmp(header,"content-type", length) == 0 && strlen(header) == length) ? 1 : 0;
+	ctx* context = malloc(sizeof(context));
+	context->action = NEW_LINE;
+	context->lastAction= -1;
+	context->ctp = NULL;
+	context->censore = 0;
+	return context;
 }
+
