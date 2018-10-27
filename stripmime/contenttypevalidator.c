@@ -30,7 +30,7 @@ contentypevalidator* initcontenttypevalidator(char* mts)
 
 	ctp->stillValid = 1;
 	ctp->quantityMediaTypes = counter;
-	ctp->isValid = malloc(counter * sizeof(char));
+	ctp->isValid = malloc(counter * sizeof(int));
 	ctp->startingIndex = malloc(counter * sizeof(int));
 	ctp->ignore = 0;
 	ctp->index = 0;

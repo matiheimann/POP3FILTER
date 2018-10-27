@@ -6,7 +6,7 @@ typedef struct contentypevalidator
 	int quantityMediaTypes;
 	int stillValid;
 	char* mediatypes;
-	char* isValid;
+	int* isValid;
 	int* startingIndex;
 	int ignore;
 	int index;
