@@ -11,9 +11,13 @@ headervalidator* initheadervalidator()
 	hv->headers[1] = "mime-version";
 	hv->headers[2] = "content-transfer-enconding";
 	hv->isvalid = malloc(sizeof(int) * 3);
-	hv->stillvalid = 1;
+	for(int i = 0; i < 3; i++)
+	{
+		hv->isvalid[i] = 1;
+	}
 	hv->matchfound = 0;
 	hv->index = 0;
+	hv->stillvalid = 1;
 	return hv;
 }
 
@@ -42,7 +46,7 @@ int checkheader(headervalidator* hv, char c)
 			}
 		}
 	}
-
+	(hv->index)++;
 	return hv->stillvalid;
 }
 
