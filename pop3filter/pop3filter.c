@@ -768,7 +768,7 @@ request_read(struct selector_key *key)
     return ret;
 }
 
-static unsigned
+static ssize_t
 send_next_request(struct selector_key *key, buffer * b) {
     uint8_t *ptr;
     uint8_t *end_ptr = NULL;
@@ -789,13 +789,11 @@ send_next_request(struct selector_key *key, buffer * b) {
 
     if (end_ptr == NULL) {
         n = send(ATTACHMENT(key)->origin_fd, ptr, count, MSG_NOSIGNAL);
-        buffer_read_adv(b, n);
-        ATTACHMENT(key)->client.request.request_not_finished = true;
-        return 0;
     }
-
-    n = end_ptr - ptr + 1;
-    n = send(ATTACHMENT(key)->origin_fd, ptr, n, MSG_NOSIGNAL);
+    else {
+        n = end_ptr - ptr + 1;
+        n = send(ATTACHMENT(key)->origin_fd, ptr, n, MSG_NOSIGNAL);
+    }
 
     if (!ATTACHMENT(key)->client.request.request_not_finished) {
         int cmd_n;
@@ -830,6 +828,15 @@ send_next_request(struct selector_key *key, buffer * b) {
         }
         else if (strcasecmp(cmd, "PASS") == 0 && cmd_n == 2) {
             ATTACHMENT(key)->client.request.cmd_type = PASS;
+            printf("INFO: On ");
+            print_time();
+            printf(" ");
+            int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+            char* ip = malloc(ip_length);
+            memset(ip, 0x00, ip_length);
+            ip_to_string(ATTACHMENT(key)->client_addr, ip);
+            printf("client logged in: ip=%s, user=%s\n", ip, ATTACHMENT(key)->logged_in_username);
+            free(ip);
         }
         else if (strcasecmp(cmd, "DELE") == 0 && cmd_n == 2) {
             ATTACHMENT(key)->client.request.cmd_type = DELE;
@@ -837,12 +844,29 @@ send_next_request(struct selector_key *key, buffer * b) {
         }   
         else if (strcasecmp(cmd, "QUIT") == 0 && cmd_n == 1) {
             ATTACHMENT(key)->client.request.cmd_type = QUIT;
+            printf("INFO: On ");
+            print_time();
+            printf(" ");
+            int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+            char* ip = malloc(ip_length);
+            memset(ip, 0x00, ip_length);
+            ip_to_string(ATTACHMENT(key)->client_addr, ip);
+            printf("client logged out: ip=%s, user=%s, top=%d, retr=%d, dele=%d\n", 
+                ip, ATTACHMENT(key)->logged_in_username, ATTACHMENT(key)->top_commands,
+                ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
+            free(ip);
         }
         else {
             ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
         }
 
         free(aux);
+    }
+
+    if (end_ptr == NULL) {
+        buffer_read_adv(b, n);
+        ATTACHMENT(key)->client.request.request_not_finished = true;
+        return 0;
     }
 
     if (n != -1) {
@@ -985,30 +1009,11 @@ response_read(struct selector_key *key)
 
     if(n > 0 || buffer_can_read(b)) {
         buffer_write_adv(b, n);
-        if(ATTACHMENT(key)->client.request.cmd_type == PASS || ATTACHMENT(key)->client.request.cmd_type == QUIT) {
-            printf("INFO: On ");
-            print_time();
-            printf(" ");
-            int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-            char* ip = malloc(ip_length);
-            memset(ip, 0x00, ip_length);
-            ip_to_string(ATTACHMENT(key)->client_addr, ip);
 
-            if (ATTACHMENT(key)->client.request.cmd_type == PASS) {
-                printf("client logged in: ip=%s, user=%s\n", ip, ATTACHMENT(key)->logged_in_username);
-            }
-            else if(ATTACHMENT(key)->client.request.cmd_type == QUIT) {
-                printf("client logged out: ip=%s, user=%s, top=%d, retr=%d, dele=%d\n", 
-                ip, ATTACHMENT(key)->logged_in_username, ATTACHMENT(key)->top_commands,
-                ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
-            }
-
-            free(ip);
-        }
-        
         if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
             if (ATTACHMENT(key)->filter_pid == -1) {
                 ATTACHMENT(key)->filter_pid = start_external_process(key);
+                //printf("start\n");
                 if (ATTACHMENT(key)->filter_pid == -1) {
                     ret = ERROR;
                 }
@@ -1071,7 +1076,7 @@ static bool is_multi_response(enum request_cmd_type cmd) {
     }
 } 
 
-static unsigned
+static ssize_t
 send_next_response(struct selector_key *key, buffer * b) {
     uint8_t *ptr;
     size_t i = 0;
@@ -1101,6 +1106,7 @@ send_next_response(struct selector_key *key, buffer * b) {
                 if (e->type == POP3_MULTI_FIN) {
                     if (ATTACHMENT(key)->filter_pid != -1) {
                         finish_external_process(key);
+                        //printf("finish\n");
                     }
                     parser_destroy(ATTACHMENT(key)->orig.response.multi_parser);
                     ATTACHMENT(key)->orig.response.multi_parser = NULL;
@@ -1151,21 +1157,10 @@ response_write(struct selector_key *key)
             ret = DONE;
         }
         else {
-            n = send_next_request(key, d->rb);
-            if (n == -1)
-                ret = ERROR;
-            else if (n == 0) {
-                selector_status ss = SELECTOR_SUCCESS;
-                ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
-                ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
-            }
-            else {
-                selector_status ss = SELECTOR_SUCCESS;
-                ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
-                ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
-            }
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
+            ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
         }
     }
 
