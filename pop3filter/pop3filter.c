@@ -932,6 +932,53 @@ response_init(const unsigned state, struct selector_key *key)
     d->wb = &ATTACHMENT(key)->write_buffer;
 }
 
+static pid_t
+start_external_process(struct selector_key *key) {
+    pid_t pid = -1;
+    if (pipe(ATTACHMENT(key)->filter_in_fds) == -1 ||
+        pipe(ATTACHMENT(key)->filter_out_fds) == -1) {
+        return -1;
+    }
+
+    if (selector_fd_set_nio(ATTACHMENT(key)->filter_in_fds[1]) == -1 ||
+        selector_fd_set_nio(ATTACHMENT(key)->filter_out_fds[0]) == -1) {
+        return -1;
+    }
+
+    pid = fork();
+    if (pid == -1) {
+        return -1;
+    }
+    else if (pid == 0) {
+        close(ATTACHMENT(key)->filter_in_fds[1]);
+        close(ATTACHMENT(key)->filter_out_fds[0]);
+
+        dup2(ATTACHMENT(key)->filter_in_fds[0], STDIN_FILENO);
+        dup2(ATTACHMENT(key)->filter_out_fds[1], STDOUT_FILENO);
+        
+        return execl("/bin/sh", "sh", "-c", options->command, NULL);
+    }
+
+    close(ATTACHMENT(key)->filter_in_fds[0]);
+    close(ATTACHMENT(key)->filter_out_fds[1]);
+    
+    return pid;
+}
+
+static void
+finish_external_process(struct selector_key *key) {
+    close(ATTACHMENT(key)->filter_in_fds[1]);
+    close(ATTACHMENT(key)->filter_out_fds[0]);
+    selector_unregister_fd(key->s, ATTACHMENT(key)->filter_in_fds[1]);
+    selector_unregister_fd(key->s, ATTACHMENT(key)->filter_out_fds[0]);
+    ATTACHMENT(key)->filter_in_fds[0] = -1;
+    ATTACHMENT(key)->filter_in_fds[1] = -1;
+    ATTACHMENT(key)->filter_out_fds[0] = -1;
+    ATTACHMENT(key)->filter_out_fds[1] = -1;
+    waitpid(ATTACHMENT(key)->filter_pid, NULL, 0);
+    ATTACHMENT(key)->filter_pid = -1;
+}
+
 /** Lee la respuesta del origin server */
 static unsigned
 response_read(struct selector_key *key) 
@@ -975,42 +1022,23 @@ response_read(struct selector_key *key)
         else if(ATTACHMENT(key)->client.request.cmd_type == DELE) {
             ATTACHMENT(key)->dele_commands++;
         }
+        
         if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
             ATTACHMENT(key)->retr_commands++;
             if (ATTACHMENT(key)->filter_pid == -1) {
-                if (pipe(ATTACHMENT(key)->filter_in_fds) == -1 ||
-                    pipe(ATTACHMENT(key)->filter_out_fds) == -1 ||
-                        selector_fd_set_nio(ATTACHMENT(key)->filter_in_fds[1]) == -1 ||
-                        selector_fd_set_nio(ATTACHMENT(key)->filter_out_fds[0]) == -1) {
+                ATTACHMENT(key)->filter_pid = start_external_process(key);
+                if (ATTACHMENT(key)->filter_pid == -1) {
                     ret = ERROR;
                 }
                 else {
-                    ATTACHMENT(key)->filter_pid = fork();
-                    if (ATTACHMENT(key)->filter_pid == -1) {
-                        ret = ERROR;
-                    }
-                    else if (ATTACHMENT(key)->filter_pid == 0) {
-                        close(ATTACHMENT(key)->filter_in_fds[1]);
-                        close(ATTACHMENT(key)->filter_out_fds[0]);
-
-                        dup2(ATTACHMENT(key)->filter_in_fds[0], STDIN_FILENO);
-                        dup2(ATTACHMENT(key)->filter_out_fds[1], STDOUT_FILENO);
-        
-                        execl("/bin/sh", "sh", "-c", options->command, NULL);
-                    }
-                    else {
-                        close(ATTACHMENT(key)->filter_in_fds[0]);
-                        close(ATTACHMENT(key)->filter_out_fds[1]);
-
-                        selector_status ss = SELECTOR_SUCCESS;
-                        ss |= selector_set_interest_key(key, OP_NOOP);
-                        ss |= selector_register(key->s, ATTACHMENT(key)->filter_in_fds[1], &pop3filter_handler,
-                                   OP_WRITE, key->data);
-                        ss |= selector_register(key->s, ATTACHMENT(key)->filter_out_fds[0], &pop3filter_handler,
-                                   OP_NOOP, key->data);
-                        ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
-                    }
-                }
+                    selector_status ss = SELECTOR_SUCCESS;
+                    ss |= selector_set_interest_key(key, OP_NOOP);
+                    ss |= selector_register(key->s, ATTACHMENT(key)->filter_in_fds[1], &pop3filter_handler,
+                                OP_WRITE, key->data);
+                    ss |= selector_register(key->s, ATTACHMENT(key)->filter_out_fds[0], &pop3filter_handler,
+                                OP_NOOP, key->data);
+                    ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
+                }     
             } 
             else {
                 selector_status ss = SELECTOR_SUCCESS;
@@ -1044,6 +1072,7 @@ response_read(struct selector_key *key)
         print_time();
         printf(" error reading response from origin server, connected client ip=%s\n", ip);
     }
+
     return ret;
 }
 
@@ -1077,6 +1106,9 @@ send_next_response(struct selector_key *key, buffer * b) {
                 uint8_t c = buffer_read(b);
                 const struct parser_event *e = parser_feed(ATTACHMENT(key)->orig.response.multi_parser, c);
                 if (e->type == POP3_MULTI_FIN) {
+                    if (ATTACHMENT(key)->filter_pid != -1) {
+                        finish_external_process(key);
+                    }
                     parser_destroy(ATTACHMENT(key)->orig.response.multi_parser);
                     ATTACHMENT(key)->orig.response.multi_parser = NULL;
                     n = send(key->fd, ptr, i, MSG_NOSIGNAL);
@@ -1132,20 +1164,6 @@ response_write(struct selector_key *key)
                 ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
             }
             else {
-                if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
-                    close(ATTACHMENT(key)->filter_in_fds[1]);
-                    close(ATTACHMENT(key)->filter_out_fds[0]);
-                    selector_unregister_fd(key->s, ATTACHMENT(key)->filter_in_fds[1]);
-                    selector_unregister_fd(key->s, ATTACHMENT(key)->filter_out_fds[0]);
-                    ATTACHMENT(key)->filter_in_fds[0] = -1;
-                    ATTACHMENT(key)->filter_in_fds[1] = -1;
-                    ATTACHMENT(key)->filter_out_fds[0] = -1;
-                    ATTACHMENT(key)->filter_out_fds[1] = -1;
-
-                    waitpid(ATTACHMENT(key)->filter_pid, NULL, 0);
-                    ATTACHMENT(key)->filter_pid = -1;
-                }
-
                 if (ATTACHMENT(key)->client.request.cmd_type == QUIT) {
                     ret = DONE;
                 }
