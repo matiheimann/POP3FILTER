@@ -4,6 +4,7 @@
 #include "contenttypevalidator.h"
 #include "headervalidator.h"
 #include "stack.h"
+#include "boundaryvalidator.h"
 
 typedef enum states
 {
@@ -22,6 +23,7 @@ typedef struct ctx
 	int contenttypedeclared;
 	contentypevalidator* ctp;
 	headervalidator* hv;
+	boundaryvalidator* bv;
 	stack* censored;
 	stack* boundaries;
 
@@ -29,5 +31,6 @@ typedef struct ctx
 
 void filteremail(char* cesoredMediaTypes, char* filterMessage);
 ctx* initcontext();
+void destroycontext(ctx* context);
 
 #endif
