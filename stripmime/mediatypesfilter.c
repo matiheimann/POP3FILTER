@@ -11,9 +11,8 @@
 void filteremail(char* censoredMediaTypes, char* filterMessage)
 {
 	ctx* context = initcontext();
-
 	int n = 0;
-	char buffer[4096];
+	char buffer[4096] = {0};
 	do
 	{
 		n = read(STDIN_FILENO, buffer, 4096);
@@ -24,6 +23,7 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 				case NEW_LINE:
 					if(buffer[i] != ' ')
 					{
+						i--;
 						context->action = CHECKING_HEADER;
 					}
 					else
@@ -31,8 +31,8 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						context->action = context->lastAction;
 					}
 					break;
+
 				case CHECKING_CONTENT_TYPE:
-					
 					if(context->ctp == NULL)
 					{
 						context->ctp = malloc(sizeof(contentypevalidator));
@@ -40,17 +40,28 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					}
 					if(context->ctp->matchfound == 1)
 					{
+						
 					}
 					else if(context->ctp->stillValid)
 					{
-						if(buffer[i] == ';')
-						{
+						checkmediatypes(context->ctp, buffer[i]);
+					}
+					break;
 
-						}
-						else
+				case CHECKING_HEADER:
+					if(context->hv == NULL)
+					{
+						context->hv = initheadervalidator();
+					}
+					checkheader(context->hv, buffer[i]);
+					if(context->hv->matchfound != 0)
+					{
+						if(context->hv->matchfound == CONTENT_TYPE)
 						{
-							checkmediatypes(context->ctp, buffer[i]);
+							context->action = CHECKING_CONTENT_TYPE;
 						}
+						destroyheadervalidator(context->hv);
+						context->hv = NULL;
 					}
 					break;
 			}
@@ -65,6 +76,7 @@ ctx* initcontext(char* censoredMediaTypes)
 	context->action = NEW_LINE;
 	context->lastAction= -1;
 	context->ctp = NULL;
+	context->hv = NULL;
 	return context;
 }
 

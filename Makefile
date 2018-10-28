@@ -1,4 +1,4 @@
-all: pop3filter management mediatypesfilter
+all: pop3filter management stripmime
 
 fromzero: clean all ; ./pop3filter
 
