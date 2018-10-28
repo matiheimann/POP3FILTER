@@ -10,7 +10,6 @@
 #include <sys/wait.h>
 #include <pthread.h>
 #include <poll.h>
-#include <time.h>
 
 #include "pop3filter.h"
 #include "selector.h"
@@ -19,6 +18,7 @@
 #include "pop3_multi.h"
 #include "options.h"
 #include "iputils.h"
+#include "timeutils.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -343,6 +343,9 @@ pop3filter_passive_accept(struct selector_key *key) {
     }
     return ;
 fail:
+    printf("ERROR: On ");
+    print_time();
+    printf(" error accepting client connection request\n");
     if(client != -1) {
         close(client);
     }
@@ -364,13 +367,11 @@ connect_start(struct selector_key *key) {
 
     struct selector_key* k = malloc(sizeof(*key));
     if(k == NULL) {
-        perror("resolv() failed");
         ret = ERROR;
     }
     else {
         memcpy(k, key, sizeof(*k));
         if(-1 == pthread_create(&tid, 0, connect_resolv_blocking, k)) {
-            perror("resolv() failed");
             ret = ERROR;
         } 
         else  {
@@ -379,6 +380,11 @@ connect_start(struct selector_key *key) {
         }
     }
 
+    if(ret == ERROR) {
+        printf("ERROR: On ");
+        print_time();
+        printf(" error resolving origin name server\n");
+    }
     return ret;
 }
 
@@ -422,9 +428,13 @@ static unsigned
 connect_resolv_done(struct selector_key *key)
 {
     struct pop3filter       *p   = ATTACHMENT(key);
+    int error_connecting_to_origin = 0;
+    int error_creating_socket = 0;
 
     if(p->origin_resolution == 0) {
-        perror("resolv() failed");
+        printf("ERROR: On ");
+        print_time();
+        printf(" error resolving origin name server\n");
         goto error;
     }
 
@@ -439,11 +449,12 @@ connect_resolv_done(struct selector_key *key)
     int sock = socket(p->origin_domain, SOCK_STREAM, IPPROTO_TCP);
 
     if (sock < 0) {
-        perror("socket() failed");
+        error_creating_socket = 1;
         goto error;
     }
 
     if (selector_fd_set_nio(sock) == -1) {
+        error_creating_socket = 1;
         goto error;
     }
 
@@ -457,6 +468,7 @@ connect_resolv_done(struct selector_key *key)
             // dejamos de pollear el socket del cliente
             selector_status st = selector_set_interest_key(key, OP_NOOP);
             if(SELECTOR_SUCCESS != st) {
+                error_connecting_to_origin = 1;
                 goto error;
             }
 
@@ -464,13 +476,16 @@ connect_resolv_done(struct selector_key *key)
             st = selector_register(key->s, sock, &pop3filter_handler,
                                    OP_WRITE, key->data);
             if(SELECTOR_SUCCESS != st) {
+                error_connecting_to_origin = 1;
                 goto error;
             }
             ATTACHMENT(key)->references += 1;
         } else {
+            error_connecting_to_origin = 1;
             goto error;
         }
     } else {
+        error_connecting_to_origin = 1;
         goto error;
     }
 
@@ -479,6 +494,16 @@ connect_resolv_done(struct selector_key *key)
 error:
     if (sock != -1) {
         close(sock);
+    }
+    if(error_creating_socket) {
+        printf("ERROR: On ");
+        print_time();
+        printf(" error creating socket to communicate with origin server\n");
+    }
+    if(error_connecting_to_origin) {
+        printf("ERROR: On ");
+        print_time();
+        printf(" error connecting to origin server\n");
     }
     return ERROR;
 }
@@ -505,7 +530,9 @@ connecting(struct selector_key *key)
     if (getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
         const char * msg = "-ERR Connection failed.\r\n";
         send(d->client_fd, msg, strlen(msg), 0);
-        fprintf(stderr, "Connection to origin server failed\n");
+        printf("ERROR: On ");
+        print_time();
+        printf(" connection to origin server failed\n");
         selector_set_interest_key(key, OP_NOOP);
         return ERROR;
     } else {
@@ -514,7 +541,9 @@ connecting(struct selector_key *key)
         } else {
             const char * msg = "-ERR Connection failed.\r\n";
             send(d->client_fd, msg, strlen(msg), 0);
-            fprintf(stderr, "Connection to origin server failed\n");
+            printf("ERROR: On ");
+            print_time();
+            printf(" connection to origin server failed\n");
             selector_set_interest_key(key, OP_NOOP);
             return ERROR;
         }
@@ -668,6 +697,11 @@ capa_read(struct selector_key *key)
         ret = ERROR;
     }
 
+    if(ret == ERROR) {
+        printf("ERROR: On ");
+        print_time();
+        printf(" error reading CAPA response from origin\n");
+    }
     return ret;
 }
 
@@ -714,6 +748,21 @@ request_read(struct selector_key *key)
         ret = ERROR;
     }
 
+    if(ret == ERROR) {
+        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+        char* ip = malloc(ip_length);
+        if(ip == NULL) {
+            printf("ERROR: On ");
+            print_time();
+            printf(" error reading client response\n");
+            return ret;
+        }
+        memset(ip, 0x00, ip_length);
+        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        printf("ERROR: On ");
+        print_time();
+        printf(" error reading client response, connected client ip=%s\n", ip);
+    }
     return ret;
 }
 
@@ -845,6 +894,22 @@ request_write(struct selector_key *key)
         }
     }
 
+    if(ret == ERROR) {
+        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+        char* ip = malloc(ip_length);
+        if(ip == NULL) {
+            printf("ERROR: On ");
+            print_time();
+            printf(" error writing client request to origin server\n");
+            return ret;
+        }
+        memset(ip, 0x00, ip_length);
+        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        printf("ERROR: On ");
+        print_time();
+        printf(" error writing client request to origin server, connected client ip=%s\n", ip);
+    }
+
     return ret;
 }
 
@@ -885,11 +950,9 @@ response_read(struct selector_key *key)
     if(n > 0 || buffer_can_read(b)) {
         buffer_write_adv(b, n);
         if(ATTACHMENT(key)->client.request.cmd_type == PASS || ATTACHMENT(key)->client.request.cmd_type == QUIT) {
-            time_t t = time(NULL);
-            struct tm time_manager = *localtime(&t);
-            printf("On %d-%d-%d %d:%d:%d ", time_manager.tm_year + 1900, time_manager.tm_mon + 1, 
-                time_manager.tm_mday, time_manager.tm_hour, time_manager.tm_min, time_manager.tm_sec);
-
+            printf("INFO: On ");
+            print_time();
+            printf(" ");
             int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
             char* ip = malloc(ip_length);
             memset(ip, 0x00, ip_length);
@@ -966,6 +1029,21 @@ response_read(struct selector_key *key)
         ret = ERROR;
     }
 
+    if(ret == ERROR) {
+        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+        char* ip = malloc(ip_length);
+        if(ip == NULL) {
+            printf("ERROR: On ");
+            print_time();
+            printf(" error reading response from origin server\n");
+            return ret;
+        }
+        memset(ip, 0x00, ip_length);
+        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        printf("ERROR: On ");
+        print_time();
+        printf(" error reading response from origin server, connected client ip=%s\n", ip);
+    }
     return ret;
 }
 
@@ -1092,6 +1170,21 @@ response_write(struct selector_key *key)
         }
     }
 
+    if(ret == ERROR) {
+        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+        char* ip = malloc(ip_length);
+        if(ip == NULL) {
+            printf("ERROR: On ");
+            print_time();
+            printf(" error writing origin server response to client\n");
+            return ret;
+        }
+        memset(ip, 0x00, ip_length);
+        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        printf("ERROR: On ");
+        print_time();
+        printf(" error writing origin server response to client, connected client ip=%s\n", ip);
+    }
     return ret;
 }
 
@@ -1139,6 +1232,22 @@ filter_read(struct selector_key *key)
         ret = ERROR;
     }
 
+    if(ret == ERROR) {
+        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+        char* ip = malloc(ip_length);
+        if(ip == NULL) {
+            printf("ERROR: On ");
+            print_time();
+            printf(" error filtering mail\n");
+            return ret;
+        }
+        memset(ip, 0x00, ip_length);
+        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        printf("ERROR: On ");
+        print_time();
+        printf(" error filtering mail, connected client ip=%s\n", ip);
+    }
+
     return ret;
 }
 
@@ -1169,6 +1278,22 @@ filter_write(struct selector_key *key)
         }
     }
 
+    if(ret == ERROR) {
+        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+        char* ip = malloc(ip_length);
+        if(ip == NULL) {
+            printf("ERROR: On ");
+            print_time();
+            printf(" error filtering mail\n");
+            return ret;
+        }
+        memset(ip, 0x00, ip_length);
+        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        printf("ERROR: On ");
+        print_time();
+        printf(" error filtering mail, connected client ip=%s\n", ip);
+    }
+    
     return ret;
 }
 
