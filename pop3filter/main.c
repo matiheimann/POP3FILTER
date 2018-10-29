@@ -33,20 +33,18 @@ int main(int argc, char* const argv[])
     selector_status   ss      = SELECTOR_SUCCESS;
     fd_selector selector      = NULL;
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family      = AF_INET;
-    addr.sin_addr.s_addr = htonl(options->pop3Direction);
-    addr.sin_port        = htons(options->localPort);
+    if (((struct sockaddr*)&options->pop3Address)->sa_family == AF_INET)
+        ((struct sockaddr_in*)&options->pop3Address)->sin_port = htons(options->localPort);
+    else if (((struct sockaddr*)&options->pop3Address)->sa_family == AF_INET6)
+        ((struct sockaddr_in6*)&options->pop3Address)->sin6_port = htons(options->localPort);
 
-    struct sockaddr_in mAddr;
-    memset(&mAddr, 0, sizeof(mAddr));
-    mAddr.sin_family = AF_INET;
-  	mAddr.sin_addr.s_addr = htonl(options->managementDirection);
-  	mAddr.sin_port = htons(options->managementPort);
+    if (((struct sockaddr*)&options->managementAddress)->sa_family == AF_INET)
+        ((struct sockaddr_in*)&options->managementAddress)->sin_port = htons(options->managementPort);
+    else if (((struct sockaddr*)&options->managementAddress)->sa_family == AF_INET6)
+        ((struct sockaddr_in6*)&options->managementAddress)->sin6_port = htons(options->managementPort);
 
-    const int server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    const int managementServer = socket(AF_INET, SOCK_STREAM, IPPROTO_SCTP);
+    const int server = socket(((struct sockaddr*)&options->pop3Address)->sa_family, SOCK_STREAM, IPPROTO_TCP);
+    const int managementServer = socket(((struct sockaddr*)&options->managementAddress)->sa_family, SOCK_STREAM, IPPROTO_SCTP);
     if(server < 0 || managementServer < 0) {
         err_msg = "unable to create socket";
        	goto finally;
@@ -55,7 +53,8 @@ int main(int argc, char* const argv[])
 	setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
 	setsockopt(managementServer, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
 
-	if(bind(server, (struct sockaddr*) &addr, sizeof(addr)) < 0 || bind(managementServer, (struct sockaddr*) &mAddr, sizeof(mAddr)) < 0) {
+	if(bind(server, (struct sockaddr*) &(options->pop3Address), sizeof(options->pop3Address)) < 0 || 
+       bind(managementServer, (struct sockaddr*) &(options->managementAddress), sizeof(options->managementAddress)) < 0) {
         err_msg = "unable to bind socket";
         goto finally;
     }

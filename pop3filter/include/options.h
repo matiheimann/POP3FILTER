@@ -6,8 +6,8 @@
 typedef struct {
     char* originServer;
     char* errorFile;
-    uint32_t pop3Direction;
-    uint32_t managementDirection;
+    struct sockaddr_in6 pop3Address;
+    struct sockaddr_in6 managementAddress;
     char* replacementMessage;
     int selectedReplacementMessage;
     char* censoredMediaTypes;
@@ -24,9 +24,9 @@ void setConfiguration(int argc, char* const argv[]);
 void setOriginServer(char* server);
 void setErrorFile(char* file);
 void printHelp();
+void setPop3Address(char* dir);
+void setManagementAddress(char* dir);
 int isANumericArgument(char* dir, char param);
-void setPop3Direction(char* dir);
-void setManagementDirection(char* dir);
 void setReplacementMessage(char* message);
 void addCensoredMediaType(char* mediaType);
 void setManagementPort(char* port);

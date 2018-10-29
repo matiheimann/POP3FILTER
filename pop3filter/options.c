@@ -13,6 +13,7 @@
 #include <ctype.h> 
 
 #include "options.h"
+#include "iputils.h"
 #include "mediatypes.h"
 
 options_st * options;
@@ -22,8 +23,6 @@ void setConfiguration(int argc, char* const argv[])
 	/* Initialize default values */
    	options = malloc(sizeof(*options));
 	options->errorFile = "/dev/null";
-	options->pop3Direction = INADDR_ANY;
-	options->managementDirection = INADDR_LOOPBACK;
 	options->replacementMessage = "Parte reemplazada";
 	options->selectedReplacementMessage = 0;
 	options->censoredMediaTypes = "";
@@ -32,6 +31,23 @@ void setConfiguration(int argc, char* const argv[])
 	options->originPort = 110;
 	options->command = "cat";
 	options->version = "1.0";
+
+	memset(&(options->pop3Address), 0, sizeof(options->pop3Address));
+	memset(&(options->managementAddress), 0, sizeof(options->managementAddress));
+
+	// IPv4 and IPv6
+	/*
+	options->pop3Address.sin6_family = AF_INET6;
+	options->pop3Address.sin6_addr = in6addr_any;
+	options->managementAddress.sin6_family = AF_INET6;
+	options->managementAddress.sin6_addr = in6addr_loopback;
+	*/
+
+	// Only IPv4
+	((struct sockaddr_in*)&options->pop3Address)->sin_family = AF_INET;
+	((struct sockaddr_in*)&options->pop3Address)->sin_addr.s_addr = htonl(INADDR_ANY);
+	((struct sockaddr_in*)&options->managementAddress)->sin_family = AF_INET;
+	((struct sockaddr_in*)&options->managementAddress)->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
 	char c;
 
@@ -46,10 +62,10 @@ void setConfiguration(int argc, char* const argv[])
 				printHelp();
 				break;
 			case 'l':
-				setPop3Direction(optarg);
+				setPop3Address(optarg);
 				break;
 			case 'L':
-				setManagementDirection(optarg);
+				setManagementAddress(optarg);
 				break;
 			case 'm':
 				setReplacementMessage(optarg);
@@ -115,6 +131,17 @@ void printHelp()
 	exit(0);
 }
 
+void setPop3Address(char* dir)
+{
+	options->pop3Address.sin6_family = string_to_ip(dir, (struct sockaddr*)&(options->pop3Address));
+
+}
+
+void setManagementAddress(char* dir)
+{
+	options->managementAddress.sin6_family = string_to_ip(dir, (struct sockaddr*)&(options->managementAddress));
+}
+
 int isANumericArgument(char* value, char param)
 {
 	int i = 0;
@@ -128,18 +155,6 @@ int isANumericArgument(char* value, char param)
 		i++;
 	}
 	return 1;
-}
-
-void setPop3Direction(char* dir)
-{
-	isANumericArgument(dir, 'l');
-	options->pop3Direction = atoi(dir);
-}
-
-void setManagementDirection(char* dir)
-{
-	isANumericArgument(dir, 'L');
-	options->managementDirection = atoi(dir);
 }
 
 void setReplacementMessage(char* message)

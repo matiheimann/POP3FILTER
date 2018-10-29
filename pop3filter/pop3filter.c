@@ -751,8 +751,8 @@ request_read(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-        char* ip = malloc(ip_length);
+        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
+        char* ip = malloc(ip_length+1);
         if(ip == NULL) {
             printf("ERROR: On ");
             print_time();
@@ -760,10 +760,11 @@ request_read(struct selector_key *key)
             return ret;
         }
         memset(ip, 0x00, ip_length);
-        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
         printf("ERROR: On ");
         print_time();
         printf(" error reading client response, connected client ip=%s\n", ip);
+        free(ip);
     }
     return ret;
 }
@@ -797,8 +798,8 @@ request_write(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-        char* ip = malloc(ip_length);
+        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
+        char* ip = malloc(ip_length+1);
         if(ip == NULL) {
             printf("ERROR: On ");
             print_time();
@@ -806,10 +807,11 @@ request_write(struct selector_key *key)
             return ret;
         }
         memset(ip, 0x00, ip_length);
-        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
         printf("ERROR: On ");
         print_time();
         printf(" error writing client request to origin server, connected client ip=%s\n", ip);
+        free(ip);
     }
 
     return ret;
@@ -878,10 +880,10 @@ send_next_request(struct selector_key *key, buffer * b) {
             printf("INFO: On ");
             print_time();
             printf(" ");
-            int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-            char* ip = malloc(ip_length);
+            int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
+            char* ip = malloc(ip_length+1);
             memset(ip, 0x00, ip_length);
-            ip_to_string(ATTACHMENT(key)->client_addr, ip);
+            ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
             printf("client logged in: ip=%s, user=%s\n", ip, ATTACHMENT(key)->logged_in_username);
             free(ip);
         }
@@ -894,10 +896,10 @@ send_next_request(struct selector_key *key, buffer * b) {
             printf("INFO: On ");
             print_time();
             printf(" ");
-            int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-            char* ip = malloc(ip_length);
+            int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
+            char* ip = malloc(ip_length+1);
             memset(ip, 0x00, ip_length);
-            ip_to_string(ATTACHMENT(key)->client_addr, ip);
+            ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
             printf("client logged out: ip=%s, user=%s, top=%d, retr=%d, dele=%d\n", 
                 ip, ATTACHMENT(key)->logged_in_username, ATTACHMENT(key)->top_commands,
                 ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
@@ -1047,8 +1049,8 @@ response_read(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-        char* ip = malloc(ip_length);
+        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
+        char* ip = malloc(ip_length+1);
         if(ip == NULL) {
             printf("ERROR: On ");
             print_time();
@@ -1056,10 +1058,11 @@ response_read(struct selector_key *key)
             return ret;
         }
         memset(ip, 0x00, ip_length);
-        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
         printf("ERROR: On ");
         print_time();
         printf(" error reading response from origin server, connected client ip=%s\n", ip);
+        free(ip);
     }
 
     return ret;
@@ -1148,8 +1151,8 @@ response_write(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-        char* ip = malloc(ip_length);
+        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
+        char* ip = malloc(ip_length+1);
         if(ip == NULL) {
             printf("ERROR: On ");
             print_time();
@@ -1157,10 +1160,11 @@ response_write(struct selector_key *key)
             return ret;
         }
         memset(ip, 0x00, ip_length);
-        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
         printf("ERROR: On ");
         print_time();
         printf(" error writing origin server response to client, connected client ip=%s\n", ip);
+        free(ip);
     }
 
     return ret;
@@ -1312,8 +1316,8 @@ filter_read(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-        char* ip = malloc(ip_length);
+        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
+        char* ip = malloc(ip_length+1);
         if(ip == NULL) {
             printf("ERROR: On ");
             print_time();
@@ -1321,10 +1325,11 @@ filter_read(struct selector_key *key)
             return ret;
         }
         memset(ip, 0x00, ip_length);
-        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
         printf("ERROR: On ");
         print_time();
         printf(" error reading mail filter output, connected client ip=%s\n", ip);
+        free(ip);
     }
 
     return ret;
@@ -1358,8 +1363,8 @@ filter_write(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-        char* ip = malloc(ip_length);
+        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
+        char* ip = malloc(ip_length+1);
         if(ip == NULL) {
             printf("ERROR: On ");
             print_time();
@@ -1367,10 +1372,11 @@ filter_write(struct selector_key *key)
             return ret;
         }
         memset(ip, 0x00, ip_length);
-        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
         printf("ERROR: On ");
         print_time();
         printf(" error writing mail filter input, connected client ip=%s\n", ip);
+        free(ip);
     }
     
     return ret;
