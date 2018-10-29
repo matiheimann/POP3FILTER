@@ -40,7 +40,7 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					}
 					if(context->ctp->matchfound == 1)
 					{
-						
+
 					}
 					else if(context->ctp->stillValid)
 					{
@@ -60,14 +60,26 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						{
 							context->action = CHECKING_CONTENT_TYPE;
 						}
+						else if(context->hv->matchfound == MIME_VERSION)
+						{
+							;
+						}
 						destroyheadervalidator(context->hv);
 						context->hv = NULL;
 					}
+					break;
+
+				case CHECKING_BOUNDARY:
+					if(context->bv == NULL)
+					{
+						context->bv = initboundaryvalidator();
+					} 
 					break;
 			}
 		}
 	}
 	while(n > 0);
+	destroycontext(context);
 }
 
 ctx* initcontext(char* censoredMediaTypes)
@@ -77,6 +89,13 @@ ctx* initcontext(char* censoredMediaTypes)
 	context->lastAction= -1;
 	context->ctp = NULL;
 	context->hv = NULL;
+	context->bv = NULL;
 	return context;
 }
 
+void destroycontext(ctx* context)
+{
+	free(context->ctp);
+	free(context->hv);
+	free(context);
+}

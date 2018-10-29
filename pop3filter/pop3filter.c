@@ -100,12 +100,6 @@ enum pop3filter_state {
 ////////////////////////////////////////////////////////////////////
 // Definición de variables para cada estado
 
-/** usado por HELLO */
-struct hello_st {
-    /** buffer utilizado para I/O */
-    buffer                      *rb, *wb;
-};
-
 enum request_cmd_type {
             MULTI_RETR,
             MULTI_LIST,
@@ -119,10 +113,16 @@ enum request_cmd_type {
             DEFAULT,
 };
 
+/** usado por HELLO */
+struct hello_st {
+    /** buffer utilizado para I/O */
+    buffer                      *resb;
+};
+
 /** usado por REQUEST */
 struct request_st {
     /** buffer utilizado para I/O */
-    buffer                      *rb, *wb;
+    buffer                      *reqb;
     enum request_cmd_type       cmd_type;
     bool                        request_not_finished;
 };
@@ -130,7 +130,7 @@ struct request_st {
 /** usado por RESPONSE */
 struct response_st {
     /** buffer utilizado para I/O */
-    buffer                      *rb, *wb;
+    buffer                      *resb, *filb;
     struct parser               *multi_parser;
     bool                        response_not_finished;
 };
@@ -138,7 +138,7 @@ struct response_st {
 /** usado por FILTER */
 struct filter_st {
     /** buffer utilizado para I/O */
-    buffer                      *rb, *wb;
+    buffer                      *resb, *filb;
 };
 
 /*
@@ -197,8 +197,8 @@ struct pop3filter {
     } orig;
     
     /** buffers para ser usados read_buffer, write_buffer.*/
-    uint8_t raw_buff_a[MAX_BUFFER], raw_buff_b[MAX_BUFFER];
-    buffer read_buffer, write_buffer;
+    uint8_t raw_buff_a[MAX_BUFFER], raw_buff_b[MAX_BUFFER], raw_buff_c[MAX_BUFFER];
+    buffer request_buffer, response_buffer, filter_buffer;
     
     /** cantidad de referencias a este objeto. si es uno se debe destruir */
     unsigned references;
@@ -246,8 +246,9 @@ pop3filter_new(int client_fd) {
     ret->stm    .states    = pop3filter_describe_states();
     stm_init(&ret->stm);
 
-    buffer_init(&ret->read_buffer,  N(ret->raw_buff_a), ret->raw_buff_a);
-    buffer_init(&ret->write_buffer,  N(ret->raw_buff_b), ret->raw_buff_b);
+    buffer_init(&ret->request_buffer,  N(ret->raw_buff_a), ret->raw_buff_a);
+    buffer_init(&ret->response_buffer,  N(ret->raw_buff_b), ret->raw_buff_b);
+    buffer_init(&ret->filter_buffer,  N(ret->raw_buff_c), ret->raw_buff_c);
 
     ret->references = 1;
 finally:
@@ -568,8 +569,7 @@ static void
 hello_init(const unsigned state, struct selector_key *key) 
 {
     struct hello_st *d = &ATTACHMENT(key)->orig.hello;
-    d->rb = &ATTACHMENT(key)->read_buffer;
-    d->wb = &ATTACHMENT(key)->write_buffer;
+    d->resb = &ATTACHMENT(key)->response_buffer;
 }
 
 /** Lee todos los bytes del mensaje de tipo `hello' de server_fd */
@@ -579,7 +579,7 @@ hello_read(struct selector_key *key)
     struct hello_st *d      = &ATTACHMENT(key)->orig.hello;
     enum pop3filter_state  ret    = HELLO;
 
-    buffer *b            = d->wb;
+    buffer *b            = d->resb;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -609,7 +609,7 @@ hello_write(struct selector_key *key)
     struct hello_st *d = &ATTACHMENT(key)->orig.hello;
     enum pop3filter_state  ret      = HELLO;
 
-    buffer *b            = d->wb;
+    buffer *b            = d->resb;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -660,8 +660,7 @@ static void
 capa_init(const unsigned state, struct selector_key *key) 
 {
     struct response_st * d     = &ATTACHMENT(key)->orig.response;
-    d->rb = &ATTACHMENT(key)->read_buffer;
-    d->wb = &ATTACHMENT(key)->write_buffer;
+    d->resb = &ATTACHMENT(key)->response_buffer;
 }
 
 /** Lee todos los bytes de la respuesta de CAPA del origin_fd */
@@ -671,7 +670,7 @@ capa_read(struct selector_key *key)
     struct response_st * d     = &ATTACHMENT(key)->orig.response;
     enum pop3filter_state  ret    = CAPA;
 
-    buffer *b            = d->wb;
+    buffer *b            = d->resb;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -689,7 +688,7 @@ capa_read(struct selector_key *key)
             ATTACHMENT(key)->origin_pipelining = false;
         buffer_read_adv(b, count);
 
-        printf("%sHAY PIPELINING\n", ATTACHMENT(key)->origin_pipelining ? "" : "NO ");
+        //printf("%sHAY PIPELINING\n", ATTACHMENT(key)->origin_pipelining ? "" : "NO ");
 
         selector_status ss = SELECTOR_SUCCESS;
         ss |= selector_set_interest_key(key, OP_NOOP);
@@ -716,13 +715,14 @@ capa_close(const unsigned state, struct selector_key *key) {
 // REQUEST
 ////////////////////////////////////////////////////////////////////////////////
 
+static ssize_t send_next_request(struct selector_key *key, buffer * b);
+
 /** inicializa las variables del estado REQUEST */
 static void
 request_init(const unsigned state, struct selector_key *key) 
 {
     struct request_st * d = &ATTACHMENT(key)->client.request;
-    d->rb = &ATTACHMENT(key)->read_buffer;
-    d->wb = &ATTACHMENT(key)->write_buffer;
+    d->reqb = &ATTACHMENT(key)->request_buffer;
 }
 
 /** Lee la request del cliente */
@@ -732,7 +732,7 @@ request_read(struct selector_key *key)
     struct request_st *d = &ATTACHMENT(key)->client.request;
     enum pop3filter_state ret  = REQUEST;
 
-    buffer *b            = d->rb;
+    buffer *b            = d->reqb;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -768,93 +768,6 @@ request_read(struct selector_key *key)
     return ret;
 }
 
-static unsigned
-send_next_request(struct selector_key *key, buffer * b) {
-    uint8_t *ptr;
-    uint8_t *end_ptr = NULL;
-    size_t i = 0;
-    size_t  count;
-    ssize_t  n;
-
-    if (!buffer_can_read(b))
-        return 0;
-
-    ptr = buffer_read_ptr(b, &count);
-
-    while (i < count && end_ptr == NULL) {
-        if (*(ptr+i) == '\n')
-            end_ptr = ptr+i;
-        i++;
-    }
-
-    if (end_ptr == NULL) {
-        n = send(ATTACHMENT(key)->origin_fd, ptr, count, MSG_NOSIGNAL);
-        buffer_read_adv(b, n);
-        ATTACHMENT(key)->client.request.request_not_finished = true;
-        return 0;
-    }
-
-    n = end_ptr - ptr + 1;
-    n = send(ATTACHMENT(key)->origin_fd, ptr, n, MSG_NOSIGNAL);
-
-    if (!ATTACHMENT(key)->client.request.request_not_finished) {
-        int cmd_n;
-        char cmd[16], arg1[32], arg2[32], extra[5];
-        char * aux = malloc(n+1);
-        memcpy(aux, ptr, n);
-        aux[n] = '\0';
-
-        cmd_n = sscanf(aux, "%s %s %s %s", cmd, arg1, arg2, extra);
-
-        if (strcasecmp(cmd, "RETR") == 0 && cmd_n == 2) {
-            ATTACHMENT(key)->client.request.cmd_type = MULTI_RETR;
-            ATTACHMENT(key)->retr_commands++;
-        }   
-        else if (strcasecmp(cmd, "LIST") == 0 && cmd_n == 1) {
-            ATTACHMENT(key)->client.request.cmd_type = MULTI_LIST;
-        }
-        else if (strcasecmp(cmd, "CAPA") == 0 && cmd_n == 1) {
-            ATTACHMENT(key)->client.request.cmd_type = MULTI_CAPA;
-        }
-        else if (strcasecmp(cmd, "UIDL") == 0 && cmd_n == 1) {
-            ATTACHMENT(key)->client.request.cmd_type = MULTI_UIDL;
-        }
-        else if (strcasecmp(cmd, "TOP") == 0 && cmd_n == 3) {
-            ATTACHMENT(key)->client.request.cmd_type = MULTI_TOP;
-            ATTACHMENT(key)->top_commands++;
-        }
-        else if (strcasecmp(cmd, "USER") == 0 && cmd_n == 2) {
-            ATTACHMENT(key)->client.request.cmd_type = USER;
-            ATTACHMENT(key)->logged_in_username = malloc(strlen(arg1)+1);
-            strcpy(ATTACHMENT(key)->logged_in_username, arg1);
-        }
-        else if (strcasecmp(cmd, "PASS") == 0 && cmd_n == 2) {
-            ATTACHMENT(key)->client.request.cmd_type = PASS;
-        }
-        else if (strcasecmp(cmd, "DELE") == 0 && cmd_n == 2) {
-            ATTACHMENT(key)->client.request.cmd_type = DELE;
-            ATTACHMENT(key)->dele_commands++;
-        }   
-        else if (strcasecmp(cmd, "QUIT") == 0 && cmd_n == 1) {
-            ATTACHMENT(key)->client.request.cmd_type = QUIT;
-        }
-        else {
-            ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
-        }
-
-        free(aux);
-    }
-
-    if (n != -1) {
-        buffer_read_adv(b, n);
-        ATTACHMENT(key)->client.request.request_not_finished = false;
-        if ((unsigned int)n != count)
-            buffer_compact(b);
-    }
-
-    return n;  
-}
-
 /** Escribe la request en el server */
 static unsigned
 request_write(struct selector_key *key) 
@@ -862,7 +775,7 @@ request_write(struct selector_key *key)
     struct request_st *d = &ATTACHMENT(key)->client.request;
     enum pop3filter_state ret      = REQUEST;
 
-    buffer *b          = d->rb;
+    buffer *b          = d->reqb;
     ssize_t  n;
 
     n = send_next_request(key, b);
@@ -902,6 +815,117 @@ request_write(struct selector_key *key)
     return ret;
 }
 
+static ssize_t
+send_next_request(struct selector_key *key, buffer * b) {
+    uint8_t *ptr;
+    uint8_t *end_ptr = NULL;
+    size_t i = 0;
+    size_t  count;
+    ssize_t  n;
+
+    if (!buffer_can_read(b))
+        return 0;
+
+    ptr = buffer_read_ptr(b, &count);
+
+    while (i < count && end_ptr == NULL) {
+        if (*(ptr+i) == '\n')
+            end_ptr = ptr+i;
+        i++;
+    }
+
+    if (end_ptr == NULL) {
+        n = send(ATTACHMENT(key)->origin_fd, ptr, count, MSG_NOSIGNAL);
+    }
+    else {
+        n = end_ptr - ptr + 1;
+        n = send(ATTACHMENT(key)->origin_fd, ptr, n, MSG_NOSIGNAL);
+    }
+
+    if (!ATTACHMENT(key)->client.request.request_not_finished) {
+        int cmd_n;
+        char cmd[16], arg1[32], arg2[32], extra[5];
+        char * aux = malloc(n+1);
+        memcpy(aux, ptr, n);
+        aux[n] = '\0';
+
+        cmd_n = sscanf(aux, "%s %s %s %s", cmd, arg1, arg2, extra);
+
+        if (strcasecmp(cmd, "RETR") == 0 && cmd_n == 2) {
+            ATTACHMENT(key)->client.request.cmd_type = MULTI_RETR;
+            ATTACHMENT(key)->retr_commands++;
+        }   
+        else if (strcasecmp(cmd, "LIST") == 0 && cmd_n == 1) {
+            ATTACHMENT(key)->client.request.cmd_type = MULTI_LIST;
+        }
+        else if (strcasecmp(cmd, "CAPA") == 0 && cmd_n == 1) {
+            ATTACHMENT(key)->client.request.cmd_type = MULTI_CAPA;
+        }
+        else if (strcasecmp(cmd, "UIDL") == 0 && cmd_n == 1) {
+            ATTACHMENT(key)->client.request.cmd_type = MULTI_UIDL;
+        }
+        else if (strcasecmp(cmd, "TOP") == 0 && cmd_n == 3) {
+            ATTACHMENT(key)->client.request.cmd_type = MULTI_TOP;
+            ATTACHMENT(key)->top_commands++;
+        }
+        else if (strcasecmp(cmd, "USER") == 0 && cmd_n == 2) {
+            ATTACHMENT(key)->client.request.cmd_type = USER;
+            ATTACHMENT(key)->logged_in_username = malloc(strlen(arg1)+1);
+            strcpy(ATTACHMENT(key)->logged_in_username, arg1);
+        }
+        else if (strcasecmp(cmd, "PASS") == 0 && cmd_n == 2) {
+            ATTACHMENT(key)->client.request.cmd_type = PASS;
+            printf("INFO: On ");
+            print_time();
+            printf(" ");
+            int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+            char* ip = malloc(ip_length);
+            memset(ip, 0x00, ip_length);
+            ip_to_string(ATTACHMENT(key)->client_addr, ip);
+            printf("client logged in: ip=%s, user=%s\n", ip, ATTACHMENT(key)->logged_in_username);
+            free(ip);
+        }
+        else if (strcasecmp(cmd, "DELE") == 0 && cmd_n == 2) {
+            ATTACHMENT(key)->client.request.cmd_type = DELE;
+            ATTACHMENT(key)->dele_commands++;
+        }   
+        else if (strcasecmp(cmd, "QUIT") == 0 && cmd_n == 1) {
+            ATTACHMENT(key)->client.request.cmd_type = QUIT;
+            printf("INFO: On ");
+            print_time();
+            printf(" ");
+            int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+            char* ip = malloc(ip_length);
+            memset(ip, 0x00, ip_length);
+            ip_to_string(ATTACHMENT(key)->client_addr, ip);
+            printf("client logged out: ip=%s, user=%s, top=%d, retr=%d, dele=%d\n", 
+                ip, ATTACHMENT(key)->logged_in_username, ATTACHMENT(key)->top_commands,
+                ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
+            free(ip);
+        }
+        else {
+            ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
+        }
+
+        free(aux);
+    }
+
+    if (end_ptr == NULL) {
+        buffer_read_adv(b, n);
+        ATTACHMENT(key)->client.request.request_not_finished = true;
+        return 0;
+    }
+
+    if (n != -1) {
+        buffer_read_adv(b, n);
+        ATTACHMENT(key)->client.request.request_not_finished = false;
+        if ((unsigned int)n != count)
+            buffer_compact(b);
+    }
+
+    return n;  
+}
+
 static void
 request_close(const unsigned state, struct selector_key *key) 
 {
@@ -912,13 +936,19 @@ request_close(const unsigned state, struct selector_key *key)
 // RESPONSE
 ////////////////////////////////////////////////////////////////////////////////
 
+static pid_t start_external_process(struct selector_key *key);
+static void finish_external_process(struct selector_key *key);
+static bool is_multi_response(enum request_cmd_type cmd);
+static ssize_t send_next_response(struct selector_key *key, buffer * b);
+static ssize_t send_retr_status_line(struct selector_key *key, buffer * b);
+
 /** inicializa las variables del estado RESPONSE */
 static void
 response_init(const unsigned state, struct selector_key *key) 
 {
     struct response_st * d = &ATTACHMENT(key)->orig.response;
-    d->rb = &ATTACHMENT(key)->read_buffer;
-    d->wb = &ATTACHMENT(key)->write_buffer;
+    d->resb = &ATTACHMENT(key)->response_buffer;
+    d->filb = &ATTACHMENT(key)->filter_buffer;
 }
 
 static pid_t
@@ -968,6 +998,19 @@ finish_external_process(struct selector_key *key) {
     ATTACHMENT(key)->filter_pid = -1;
 }
 
+static bool is_multi_response(enum request_cmd_type cmd) {
+    switch (cmd) {
+        case MULTI_RETR:
+        case MULTI_LIST:
+        case MULTI_CAPA:
+        case MULTI_UIDL:
+        case MULTI_TOP: 
+            return true;
+        default:
+            return false;
+    }
+} 
+
 /** Lee la respuesta del origin server */
 static unsigned
 response_read(struct selector_key *key) 
@@ -975,7 +1018,7 @@ response_read(struct selector_key *key)
     struct response_st *d = &ATTACHMENT(key)->orig.response;
     enum pop3filter_state ret      = RESPONSE;
 
-    buffer  *b         = d->wb;
+    buffer  *b         = d->resb;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -985,49 +1028,13 @@ response_read(struct selector_key *key)
 
     if(n > 0 || buffer_can_read(b)) {
         buffer_write_adv(b, n);
-        if(ATTACHMENT(key)->client.request.cmd_type == PASS || ATTACHMENT(key)->client.request.cmd_type == QUIT) {
-            printf("INFO: On ");
-            print_time();
-            printf(" ");
-            int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-            char* ip = malloc(ip_length);
-            memset(ip, 0x00, ip_length);
-            ip_to_string(ATTACHMENT(key)->client_addr, ip);
 
-            if (ATTACHMENT(key)->client.request.cmd_type == PASS) {
-                printf("client logged in: ip=%s, user=%s\n", ip, ATTACHMENT(key)->logged_in_username);
-            }
-            else if(ATTACHMENT(key)->client.request.cmd_type == QUIT) {
-                printf("client logged out: ip=%s, user=%s, top=%d, retr=%d, dele=%d\n", 
-                ip, ATTACHMENT(key)->logged_in_username, ATTACHMENT(key)->top_commands,
-                ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
-            }
-
-            free(ip);
-        }
-        
-        if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
-            if (ATTACHMENT(key)->filter_pid == -1) {
-                ATTACHMENT(key)->filter_pid = start_external_process(key);
-                if (ATTACHMENT(key)->filter_pid == -1) {
-                    ret = ERROR;
-                }
-                else {
-                    selector_status ss = SELECTOR_SUCCESS;
-                    ss |= selector_set_interest_key(key, OP_NOOP);
-                    ss |= selector_register(key->s, ATTACHMENT(key)->filter_in_fds[1], &pop3filter_handler,
-                                OP_WRITE, key->data);
-                    ss |= selector_register(key->s, ATTACHMENT(key)->filter_out_fds[0], &pop3filter_handler,
-                                OP_NOOP, key->data);
-                    ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
-                }     
-            } 
-            else {
-                selector_status ss = SELECTOR_SUCCESS;
-                ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_in_fds[1], OP_WRITE);
-                ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
-            }
+        if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR &&
+            ATTACHMENT(key)->filter_pid != -1) {
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_in_fds[1], OP_WRITE);
+            ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
         }
         else {
             selector_status ss = SELECTOR_SUCCESS;
@@ -1058,20 +1065,108 @@ response_read(struct selector_key *key)
     return ret;
 }
 
-static bool is_multi_response(enum request_cmd_type cmd) {
-    switch (cmd) {
-        case MULTI_RETR:
-        case MULTI_LIST:
-        case MULTI_CAPA:
-        case MULTI_UIDL:
-        case MULTI_TOP: 
-            return true;
-        default:
-            return false;
-    }
-} 
-
+/** Escribe la respuesta en el cliente */
 static unsigned
+response_write(struct selector_key *key) 
+{
+    struct response_st *d = &ATTACHMENT(key)->orig.response;
+    enum pop3filter_state ret = RESPONSE;
+
+    buffer  *b = d->resb;
+    ssize_t  n;
+
+    if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR &&
+        ATTACHMENT(key)->filter_pid == -1) {
+        n = send_retr_status_line(key, b);
+
+        if (n == -1) {
+            ret = ERROR;
+        } else if (n == 0) {
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+            ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
+        }
+        else {
+            if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
+                ATTACHMENT(key)->orig.response.multi_parser = parser_init(parser_no_classes(), pop3_multi_parser());
+                ATTACHMENT(key)->filter_pid = start_external_process(key);
+                if (ATTACHMENT(key)->filter_pid == -1) {
+                    ret = ERROR;
+                }
+                else {
+                    selector_status ss = SELECTOR_SUCCESS;
+                    ss |= selector_set_interest_key(key, OP_NOOP);
+                    ss |= selector_register(key->s, ATTACHMENT(key)->filter_in_fds[1], &pop3filter_handler,
+                                OP_NOOP, key->data);
+                    ss |= selector_register(key->s, ATTACHMENT(key)->filter_out_fds[0], &pop3filter_handler,
+                                OP_NOOP, key->data);
+                    if (buffer_can_read(b)) {
+                        ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_in_fds[1], OP_WRITE);
+                        ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
+                    }
+                    else {
+                        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+                        ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+                    }
+                }
+            }
+            else {
+                selector_status ss = SELECTOR_SUCCESS;
+                ss |= selector_set_interest_key(key, OP_NOOP);
+                ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
+                ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+            }
+        }
+    }
+    else {
+        if (ATTACHMENT(key)->filter_pid != -1) {
+            b = d->filb;
+        }
+
+        n = send_next_response(key, b);
+
+        if(n == -1) {
+            ret = ERROR;
+        } else if (n == 0) {
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+            ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
+        } 
+        else {
+            if (ATTACHMENT(key)->client.request.cmd_type == QUIT) {
+                ret = DONE;
+            }
+            else {
+                selector_status ss = SELECTOR_SUCCESS;
+                ss |= selector_set_interest_key(key, OP_NOOP);
+                ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
+                ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+            }
+        }
+    }
+
+    if(ret == ERROR) {
+        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
+        char* ip = malloc(ip_length);
+        if(ip == NULL) {
+            printf("ERROR: On ");
+            print_time();
+            printf(" error writing origin server response to client\n");
+            return ret;
+        }
+        memset(ip, 0x00, ip_length);
+        ip_to_string(ATTACHMENT(key)->client_addr, ip);
+        printf("ERROR: On ");
+        print_time();
+        printf(" error writing origin server response to client, connected client ip=%s\n", ip);
+    }
+
+    return ret;
+}
+
+static ssize_t
 send_next_response(struct selector_key *key, buffer * b) {
     uint8_t *ptr;
     size_t i = 0;
@@ -1126,65 +1221,50 @@ send_next_response(struct selector_key *key, buffer * b) {
     return n;  
 }
 
-/** Escribe la respuesta en el cliente */
-static unsigned
-response_write(struct selector_key *key) 
-{
-    struct response_st *d = &ATTACHMENT(key)->orig.response;
-    enum pop3filter_state ret = RESPONSE;
-
-    buffer  *b         = d->wb;
+static ssize_t
+send_retr_status_line(struct selector_key *key, buffer * b) {
+    uint8_t *ptr;
+    uint8_t *end_ptr = NULL;
+    size_t i = 0;
+    size_t  count;
     ssize_t  n;
 
-    n = send_next_response(key, b);
+    ptr = buffer_read_ptr(b, &count);
 
-    if(n == -1) {
-        ret = ERROR;
-    } else if (n == 0) {
-        selector_status ss = SELECTOR_SUCCESS;
-        ss |= selector_set_interest_key(key, OP_NOOP);
-        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
-        ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
-    } 
+    while (i < count && end_ptr == NULL) {
+        if (*(ptr+i) == '\n')
+            end_ptr = ptr+i;
+        i++;
+    }
+
+    if (end_ptr == NULL) {
+        n = send(ATTACHMENT(key)->client_fd, ptr, count, MSG_NOSIGNAL);
+    }
     else {
-        if (ATTACHMENT(key)->client.request.cmd_type == QUIT) {
-            ret = DONE;
-        }
-        else {
-            n = send_next_request(key, d->rb);
-            if (n == -1)
-                ret = ERROR;
-            else if (n == 0) {
-                selector_status ss = SELECTOR_SUCCESS;
-                ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
-                ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
-            }
-            else {
-                selector_status ss = SELECTOR_SUCCESS;
-                ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
-                ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
-            }
+        n = end_ptr - ptr + 1;
+        n = send(ATTACHMENT(key)->client_fd, ptr, n, MSG_NOSIGNAL);
+    }
+
+    if (!ATTACHMENT(key)->orig.response.response_not_finished) {
+        if (strncasecmp((char*)ptr, "+OK", 3) != 0) {
+            ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
         }
     }
 
-    if(ret == ERROR) {
-        int ip_length = AF_INET > AF_INET6 ? AF_INET : AF_INET6;
-        char* ip = malloc(ip_length);
-        if(ip == NULL) {
-            printf("ERROR: On ");
-            print_time();
-            printf(" error writing origin server response to client\n");
-            return ret;
-        }
-        memset(ip, 0x00, ip_length);
-        ip_to_string(ATTACHMENT(key)->client_addr, ip);
-        printf("ERROR: On ");
-        print_time();
-        printf(" error writing origin server response to client, connected client ip=%s\n", ip);
+    if (end_ptr == NULL) {
+        buffer_read_adv(b, n);
+        ATTACHMENT(key)->orig.response.response_not_finished = true;
+        return 0;
     }
-    return ret;
+
+    if (n != -1) {
+        buffer_read_adv(b, n);
+        ATTACHMENT(key)->orig.response.response_not_finished = false;
+        if ((unsigned int)n != count)
+            buffer_compact(b);
+    }
+
+    return n;
 }
 
 static void
@@ -1202,8 +1282,8 @@ static void
 filter_init(const unsigned state, struct selector_key *key) 
 {
     struct filter_st * d = &ATTACHMENT(key)->filter.filter;
-    d->rb = &ATTACHMENT(key)->read_buffer;
-    d->wb = &ATTACHMENT(key)->write_buffer;
+    d->resb = &ATTACHMENT(key)->response_buffer;
+    d->filb = &ATTACHMENT(key)->filter_buffer;
 }
 
 /** Lee el mail filtrado del stdout del filter */
@@ -1213,7 +1293,7 @@ filter_read(struct selector_key *key)
     struct filter_st *d = &ATTACHMENT(key)->filter.filter;
     enum pop3filter_state ret      = FILTER;
 
-    buffer  *b         = d->wb;
+    buffer  *b         = d->filb;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -1237,14 +1317,14 @@ filter_read(struct selector_key *key)
         if(ip == NULL) {
             printf("ERROR: On ");
             print_time();
-            printf(" error filtering mail\n");
+            printf(" error reading mail filter output\n");
             return ret;
         }
         memset(ip, 0x00, ip_length);
         ip_to_string(ATTACHMENT(key)->client_addr, ip);
         printf("ERROR: On ");
         print_time();
-        printf(" error filtering mail, connected client ip=%s\n", ip);
+        printf(" error reading mail filter output, connected client ip=%s\n", ip);
     }
 
     return ret;
@@ -1257,7 +1337,7 @@ filter_write(struct selector_key *key)
     struct filter_st *d = &ATTACHMENT(key)->filter.filter;
     enum pop3filter_state ret = FILTER;
 
-    buffer  *b         = d->wb;
+    buffer  *b         = d->resb;
     uint8_t *ptr;
     size_t  count;
     ssize_t  n;
@@ -1283,14 +1363,14 @@ filter_write(struct selector_key *key)
         if(ip == NULL) {
             printf("ERROR: On ");
             print_time();
-            printf(" error filtering mail\n");
+            printf(" error writing mail filter input\n");
             return ret;
         }
         memset(ip, 0x00, ip_length);
         ip_to_string(ATTACHMENT(key)->client_addr, ip);
         printf("ERROR: On ");
         print_time();
-        printf(" error filtering mail, connected client ip=%s\n", ip);
+        printf(" error writing mail filter input, connected client ip=%s\n", ip);
     }
     
     return ret;
