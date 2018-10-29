@@ -15,9 +15,13 @@
 #include "options.h"
 #include "buffer.h"
 #include "managementParser.h"
+#include "pop3FMP.h"
+
+#define N(x) (sizeof(x)/sizeof((x)[0]))
 
 static bool done = false;
 static buffer* b;
+static uint8_t raw_buff[1024];
 
 int main(int argc, char* const argv[])
 {
@@ -25,10 +29,14 @@ int main(int argc, char* const argv[])
 
 	int connection;
 	int conn;
-	int flags;
-	int send, rec;
-	struct sctp_sndrcvinfo sndrcvinfo;
+
+	int send;
+
 	const char* err_msg = NULL;
+	uint8_t *ptr; //buffer pointer
+	size_t  count;
+	ssize_t  n; 
+	bool messageComplete; //received full POP3FMP message
 
 	struct sockaddr_in addr;
 	memset(&addr, 0, sizeof(addr));
@@ -53,6 +61,7 @@ int main(int argc, char* const argv[])
 		goto finally;
 	}
 	printf("Please enter a command and press enter.\n-help to ask for help\n");
+	buffer_init(b,  N(raw_buff), raw_buff);
 	while(!done)
 	{
 		int dataSize;
@@ -60,18 +69,28 @@ int main(int argc, char* const argv[])
 		if(request != NULL)
 		{
 			send = sctp_sendmsg(connection, (void*) request, dataSize,
-				NULL, 0, 0, 0, 0, 0, 0);
+								NULL, 0, 0, 0, 0, 0, 0);
 			if(send == -1)
 			{
 				err_msg = "unable to send SCTP msg";
 				goto finally;
 			}
-			rec = sctp_recvmsg(connection, b, sizeof(b),
-					(struct sockaddr *) NULL, 0 , &sndrcvinfo, &flags);
-			if(rec == -1)
+
+			messageComplete = false;
+			while(!messageComplete)
 			{
-				err_msg = "unable to receive SCTP msg";
-				goto finally;
+				ptr = buffer_write_ptr(b, &count);
+				n = sctp_recvmsg(connection, ptr, count, NULL, 0 , 0, 0);
+				if(n > 0)
+				{
+					buffer_write_adv(b, n);
+					messageComplete = receivePOP3FMPRequest(b, n);
+				}
+				else
+				{
+					err_msg = "unable to receive SCTP msg";
+					goto finally;
+				}
 			}
 		}
 	}

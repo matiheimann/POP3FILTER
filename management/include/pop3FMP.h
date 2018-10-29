@@ -2,22 +2,28 @@
 #define POP3FMP_H
 
 #include <stdint.h>
+#include "buffer.h"
 
-typedef struct {
-    char* originServer;
-    char* errorFile;
-    uint32_t pop3Direction;
-    uint32_t managementDirection;
-    char* replacementMessage;
-    int selectedReplacementMessage;
-    char* censoredMediaTypes;
-    int managementPort;
-    int localPort;
-    int originPort;
-    char* command;
-    char* version;
-} pop3FMPMessage;
+enum POP3FMP_RESPONSE_STATES {
+    START,
+    ERROR,
+    /** la respuesta esta completa*/
+    END,
+    /** la respuesta es a version no soportada*/
+    VERSION_NOT_SUPPORTED,
+    /** bad request*/
+    VERSION_BAD_REQUEST,
+    /** version metric */
+    VERSION_METRIC,
+    /** version get set */
+    VERSION_GET_SET,
+    /** version auth */
+    VERSION_AUTH,
+    /** string */
+    STRING,
+};
 
-void getData();
+void transitions(unsigned char feed);
+int receivePOP3FMPRequest(buffer * b, int count);
 
 #endif
