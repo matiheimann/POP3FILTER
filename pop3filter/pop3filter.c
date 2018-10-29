@@ -531,7 +531,7 @@ connecting(struct selector_key *key)
     d->origin_fd = key->fd;
 
     if (getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
-        const char * msg = "-ERR Connection failed.\r\n";
+        const char * msg = "-ERR Connection refused\r\n";
         send(d->client_fd, msg, strlen(msg), 0);
         printf("ERROR: On ");
         print_time();
@@ -542,7 +542,7 @@ connecting(struct selector_key *key)
         if(error == 0) {
             d->origin_fd = key->fd;
         } else {
-            const char * msg = "-ERR Connection failed.\r\n";
+            const char * msg = "-ERR Connection refused.\r\n";
             send(d->client_fd, msg, strlen(msg), 0);
             printf("ERROR: On ");
             print_time();
