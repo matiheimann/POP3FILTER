@@ -5,15 +5,15 @@
 
 #include "managementParser.h"
 
-#define BUFFER_SIZE 200
+#define BUFFER_COMMAND_SIZE 200
 
 // TODO: check password max length
 
 unsigned char* readCommand(int* size)
 {
-	char buffer[BUFFER_SIZE]  = {0};
+	char buffer[BUFFER_COMMAND_SIZE]  = {0};
 	unsigned char* ret;
-	fgets(buffer, BUFFER_SIZE, stdin);
+	fgets(buffer, BUFFER_COMMAND_SIZE, stdin);
 	buffer[strspn(buffer, "\n")] = 0;
 	if(strcmp(buffer, "concurrent connections") == 0)
 	{
