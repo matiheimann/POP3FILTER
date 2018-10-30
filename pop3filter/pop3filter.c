@@ -19,6 +19,7 @@
 #include "options.h"
 #include "iputils.h"
 #include "timeutils.h"
+#include "logging_lib.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -355,9 +356,7 @@ pop3filter_passive_accept(struct selector_key *key) {
     }
     return ;
 fail:
-    printf("ERROR: On ");
-    print_time();
-    printf(" error accepting client connection request\n");
+    print_error_message("error accepting client connection request");
     if(client != -1) {
         close(client);
     }
@@ -393,9 +392,7 @@ connect_start(struct selector_key *key) {
     }
 
     if(ret == ERROR) {
-        printf("ERROR: On ");
-        print_time();
-        printf(" error resolving origin name server\n");
+        print_error_message("error resolving origin name server");
     }
     return ret;
 }
@@ -444,9 +441,7 @@ connect_resolv_done(struct selector_key *key)
     int error_creating_socket = 0;
 
     if(p->origin_resolution == 0) {
-        printf("ERROR: On ");
-        print_time();
-        printf(" error resolving origin name server\n");
+        print_error_message("error resolving origin name server");
         goto error;
     }
 
@@ -508,14 +503,10 @@ error:
         close(sock);
     }
     if(error_creating_socket) {
-        printf("ERROR: On ");
-        print_time();
-        printf(" error creating socket to communicate with origin server\n");
+        print_error_message("error creating socket to communicate with origin server");
     }
     if(error_connecting_to_origin) {
-        printf("ERROR: On ");
-        print_time();
-        printf(" error connecting to origin server\n");
+        print_error_message("error connecting to origin server");
     }
     return ERROR;
 }
@@ -542,9 +533,7 @@ connecting(struct selector_key *key)
     if (getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
         const char * msg = "-ERR Connection refused\r\n";
         send(d->client_fd, msg, strlen(msg), 0);
-        printf("ERROR: On ");
-        print_time();
-        printf(" connection to origin server failed\n");
+        print_error_message("connection to origin server failed");
         selector_set_interest_key(key, OP_NOOP);
         return ERROR;
     } else {
@@ -553,9 +542,7 @@ connecting(struct selector_key *key)
         } else {
             const char * msg = "-ERR Connection refused\r\n";
             send(d->client_fd, msg, strlen(msg), 0);
-            printf("ERROR: On ");
-            print_time();
-            printf(" connection to origin server failed\n");
+            print_error_message("connection to origin server failed");
             selector_set_interest_key(key, OP_NOOP);
             return ERROR;
         }
@@ -713,9 +700,7 @@ capa_read(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        printf("ERROR: On ");
-        print_time();
-        printf(" error reading CAPA response from origin\n");
+        print_error_message("error reading CAPA response from origin");
     }
     return ret;
 }
@@ -765,20 +750,7 @@ request_read(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
-        char* ip = malloc(ip_length+1);
-        if(ip == NULL) {
-            printf("ERROR: On ");
-            print_time();
-            printf(" error reading client response\n");
-            return ret;
-        }
-        memset(ip, 0x00, ip_length);
-        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
-        printf("ERROR: On ");
-        print_time();
-        printf(" error reading client response, connected client ip=%s\n", ip);
-        free(ip);
+        print_error_message_with_client_ip(ATTACHMENT(key)->client_addr, "error reading client response");
     }
     return ret;
 }
@@ -834,20 +806,7 @@ request_write(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
-        char* ip = malloc(ip_length+1);
-        if(ip == NULL) {
-            printf("ERROR: On ");
-            print_time();
-            printf(" error writing client request to origin server\n");
-            return ret;
-        }
-        memset(ip, 0x00, ip_length);
-        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
-        printf("ERROR: On ");
-        print_time();
-        printf(" error writing client request to origin server, connected client ip=%s\n", ip);
-        free(ip);
+        print_error_message_with_client_ip(ATTACHMENT(key)->client_addr, "error writing client request to origin server");
     }
 
     return ret;
@@ -913,15 +872,7 @@ send_next_request(struct selector_key *key, buffer * b) {
         }
         else if (strcasecmp(cmd, "PASS") == 0 && cmd_n == 2) {
             ATTACHMENT(key)->client.request.cmd_type = PASS;
-            printf("INFO: On ");
-            print_time();
-            printf(" ");
-            int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
-            char* ip = malloc(ip_length+1);
-            memset(ip, 0x00, ip_length);
-            ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
-            printf("client logged in: ip=%s, user=%s\n", ip, ATTACHMENT(key)->logged_in_username);
-            free(ip);
+            print_login_info_message(ATTACHMENT(key)->client_addr, ATTACHMENT(key)->logged_in_username);
         }
         else if (strcasecmp(cmd, "DELE") == 0 && cmd_n == 2) {
             ATTACHMENT(key)->client.request.cmd_type = DELE;
@@ -929,17 +880,8 @@ send_next_request(struct selector_key *key, buffer * b) {
         }   
         else if (strcasecmp(cmd, "QUIT") == 0 && cmd_n == 1) {
             ATTACHMENT(key)->client.request.cmd_type = QUIT;
-            printf("INFO: On ");
-            print_time();
-            printf(" ");
-            int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
-            char* ip = malloc(ip_length+1);
-            memset(ip, 0x00, ip_length);
-            ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
-            printf("client logged out: ip=%s, user=%s, top=%d, retr=%d, dele=%d\n", 
-                ip, ATTACHMENT(key)->logged_in_username, ATTACHMENT(key)->top_commands,
-                ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
-            free(ip);
+            print_logout_info_message(ATTACHMENT(key)->client_addr, ATTACHMENT(key)->logged_in_username, 
+                ATTACHMENT(key)->top_commands, ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
         }
         else {
             ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
@@ -1098,20 +1040,7 @@ response_read(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
-        char* ip = malloc(ip_length+1);
-        if(ip == NULL) {
-            printf("ERROR: On ");
-            print_time();
-            printf(" error reading response from origin server\n");
-            return ret;
-        }
-        memset(ip, 0x00, ip_length);
-        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
-        printf("ERROR: On ");
-        print_time();
-        printf(" error reading response from origin server, connected client ip=%s\n", ip);
-        free(ip);
+        print_error_message_with_client_ip(ATTACHMENT(key)->client_addr, "error reading response from origin server");
     }
 
     return ret;
@@ -1263,20 +1192,7 @@ response_write(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
-        char* ip = malloc(ip_length+1);
-        if(ip == NULL) {
-            printf("ERROR: On ");
-            print_time();
-            printf(" error writing origin server response to client\n");
-            return ret;
-        }
-        memset(ip, 0x00, ip_length);
-        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
-        printf("ERROR: On ");
-        print_time();
-        printf(" error writing origin server response to client, connected client ip=%s\n", ip);
-        free(ip);
+        print_error_message_with_client_ip(ATTACHMENT(key)->client_addr, "error writing origin server response to client");
     }
 
     return ret;
@@ -1405,20 +1321,7 @@ filter_read(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
-        char* ip = malloc(ip_length+1);
-        if(ip == NULL) {
-            printf("ERROR: On ");
-            print_time();
-            printf(" error reading mail filter output\n");
-            return ret;
-        }
-        memset(ip, 0x00, ip_length);
-        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
-        printf("ERROR: On ");
-        print_time();
-        printf(" error reading mail filter output, connected client ip=%s\n", ip);
-        free(ip);
+        print_error_message_with_client_ip(ATTACHMENT(key)->client_addr, "error reading mail filter output");
     }
 
     return ret;
@@ -1446,20 +1349,7 @@ filter_write(struct selector_key *key)
     }
 
     if(ret == ERROR) {
-        int ip_length = ATTACHMENT(key)->client_addr.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
-        char* ip = malloc(ip_length+1);
-        if(ip == NULL) {
-            printf("ERROR: On ");
-            print_time();
-            printf(" error writing mail filter input\n");
-            return ret;
-        }
-        memset(ip, 0x00, ip_length);
-        ip_to_string((struct sockaddr*)&ATTACHMENT(key)->client_addr, ip);
-        printf("ERROR: On ");
-        print_time();
-        printf(" error writing mail filter input, connected client ip=%s\n", ip);
-        free(ip);
+        print_error_message_with_client_ip(ATTACHMENT(key)->client_addr, "error writing mail filter output");
     }
     
     return ret;
