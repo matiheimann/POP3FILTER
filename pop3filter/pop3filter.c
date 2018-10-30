@@ -941,8 +941,8 @@ request_close(const unsigned state, struct selector_key *key)
 static pid_t start_external_process(struct selector_key *key);
 static void finish_external_process(struct selector_key *key);
 static bool is_multi_response(enum request_cmd_type cmd);
-static ssize_t send_next_response(struct selector_key *key, buffer * b);
-static ssize_t send_retr_status_line(struct selector_key *key, buffer * b);
+static ssize_t send_next_response_status_line(struct selector_key *key, buffer * b);
+static ssize_t send_next_response_multi_line(struct selector_key *key, buffer * b);
 
 /** inicializa las variables del estado RESPONSE */
 static void
@@ -1078,9 +1078,8 @@ response_write(struct selector_key *key)
     buffer  *b = d->resb;
     ssize_t  n;
 
-    if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR &&
-        ATTACHMENT(key)->filter_pid == -1) {
-        n = send_retr_status_line(key, b);
+    if (ATTACHMENT(key)->orig.response.multi_parser == NULL) {
+        n = send_next_response_status_line(key, b);
 
         if (n == -1) {
             ret = ERROR;
@@ -1091,22 +1090,36 @@ response_write(struct selector_key *key)
             ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
         }
         else {
-            if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
+            if (is_multi_response(ATTACHMENT(key)->client.request.cmd_type)) {
                 ATTACHMENT(key)->orig.response.multi_parser = parser_init(parser_no_classes(), pop3_multi_parser());
-                ATTACHMENT(key)->filter_pid = start_external_process(key);
-                if (ATTACHMENT(key)->filter_pid == -1) {
-                    ret = ERROR;
+                if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
+                    ATTACHMENT(key)->filter_pid = start_external_process(key);
+                    if (ATTACHMENT(key)->filter_pid == -1) {
+                        ret = ERROR;
+                    }
+                    else {
+                        selector_status ss = SELECTOR_SUCCESS;
+                        ss |= selector_set_interest_key(key, OP_NOOP);
+                        ss |= selector_register(key->s, ATTACHMENT(key)->filter_in_fds[1], &pop3filter_handler,
+                                    OP_NOOP, key->data);
+                        ss |= selector_register(key->s, ATTACHMENT(key)->filter_out_fds[0], &pop3filter_handler,
+                                    OP_NOOP, key->data);
+                        if (buffer_can_read(b)) {
+                            ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_in_fds[1], OP_WRITE);
+                            ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
+                        }
+                        else {
+                            ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+                            ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+                        }
+                    }
                 }
                 else {
                     selector_status ss = SELECTOR_SUCCESS;
                     ss |= selector_set_interest_key(key, OP_NOOP);
-                    ss |= selector_register(key->s, ATTACHMENT(key)->filter_in_fds[1], &pop3filter_handler,
-                                OP_NOOP, key->data);
-                    ss |= selector_register(key->s, ATTACHMENT(key)->filter_out_fds[0], &pop3filter_handler,
-                                OP_NOOP, key->data);
                     if (buffer_can_read(b)) {
-                        ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_in_fds[1], OP_WRITE);
-                        ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
+                        ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+                        ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
                     }
                     else {
                         ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
@@ -1115,10 +1128,21 @@ response_write(struct selector_key *key)
                 }
             }
             else {
-                selector_status ss = SELECTOR_SUCCESS;
-                ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
-                ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+                if (ATTACHMENT(key)->client.request.cmd_type == QUIT) {
+                    ret = DONE;
+                }
+                else {
+                    selector_status ss = SELECTOR_SUCCESS;
+                    ss |= selector_set_interest_key(key, OP_NOOP);
+                    if (buffer_can_read(b)) {
+                        ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+                        ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+                    }
+                    else {
+                        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
+                        ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+                    }
+                }
             }
         }
     }
@@ -1127,7 +1151,7 @@ response_write(struct selector_key *key)
             b = d->filb;
         }
 
-        n = send_next_response(key, b);
+        n = send_next_response_multi_line(key, b);
 
         if(n == -1) {
             ret = ERROR;
@@ -1138,15 +1162,17 @@ response_write(struct selector_key *key)
             ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
         } 
         else {
-            if (ATTACHMENT(key)->client.request.cmd_type == QUIT) {
-                ret = DONE;
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            if (buffer_can_read(b)) {
+                ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+                ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
             }
             else {
-                selector_status ss = SELECTOR_SUCCESS;
-                ss |= selector_set_interest_key(key, OP_NOOP);
                 ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
                 ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
             }
+       
         }
     }
 
@@ -1171,7 +1197,53 @@ response_write(struct selector_key *key)
 }
 
 static ssize_t
-send_next_response(struct selector_key *key, buffer * b) {
+send_next_response_status_line(struct selector_key *key, buffer * b) {
+    uint8_t *ptr;
+    uint8_t *end_ptr = NULL;
+    size_t i = 0;
+    size_t  count;
+    ssize_t  n;
+
+    ptr = buffer_read_ptr(b, &count);
+
+    while (i < count && end_ptr == NULL) {
+        if (*(ptr+i) == '\n')
+            end_ptr = ptr+i;
+        i++;
+    }
+
+    if (end_ptr == NULL) {
+        n = send(ATTACHMENT(key)->client_fd, ptr, count, MSG_NOSIGNAL);
+    }
+    else {
+        n = end_ptr - ptr + 1;
+        n = send(ATTACHMENT(key)->client_fd, ptr, n, MSG_NOSIGNAL);
+    }
+
+    if (!ATTACHMENT(key)->orig.response.response_not_finished) {
+        if (is_multi_response(ATTACHMENT(key)->client.request.cmd_type) && strncasecmp((char*)ptr, "+OK", 3) != 0) {
+            ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
+        }
+    }
+
+    if (end_ptr == NULL) {
+        buffer_read_adv(b, n);
+        ATTACHMENT(key)->orig.response.response_not_finished = true;
+        return 0;
+    }
+
+    if (n != -1) {
+        buffer_read_adv(b, n);
+        ATTACHMENT(key)->orig.response.response_not_finished = false;
+        if ((unsigned int)n != count)
+            buffer_compact(b);
+    }
+
+    return n;
+}
+
+static ssize_t
+send_next_response_multi_line(struct selector_key *key, buffer * b) {
     uint8_t *ptr;
     size_t i = 0;
     size_t  count;
@@ -1183,14 +1255,6 @@ send_next_response(struct selector_key *key, buffer * b) {
     ptr = buffer_read_ptr(b, &count);
 
     if (is_multi_response(ATTACHMENT(key)->client.request.cmd_type)) {
-        if (ATTACHMENT(key)->orig.response.multi_parser == NULL) {
-            if (strncasecmp((char*)ptr, "+OK", 3) == 0) {
-                ATTACHMENT(key)->orig.response.multi_parser = parser_init(parser_no_classes(), pop3_multi_parser());
-            }
-            else {
-                n = send(key->fd, ptr, count, MSG_NOSIGNAL);
-            }
-        }
 
         if (ATTACHMENT(key)->orig.response.multi_parser != NULL) {
             while (buffer_can_read(b)) {
@@ -1223,52 +1287,6 @@ send_next_response(struct selector_key *key, buffer * b) {
     }
 
     return n;  
-}
-
-static ssize_t
-send_retr_status_line(struct selector_key *key, buffer * b) {
-    uint8_t *ptr;
-    uint8_t *end_ptr = NULL;
-    size_t i = 0;
-    size_t  count;
-    ssize_t  n;
-
-    ptr = buffer_read_ptr(b, &count);
-
-    while (i < count && end_ptr == NULL) {
-        if (*(ptr+i) == '\n')
-            end_ptr = ptr+i;
-        i++;
-    }
-
-    if (end_ptr == NULL) {
-        n = send(ATTACHMENT(key)->client_fd, ptr, count, MSG_NOSIGNAL);
-    }
-    else {
-        n = end_ptr - ptr + 1;
-        n = send(ATTACHMENT(key)->client_fd, ptr, n, MSG_NOSIGNAL);
-    }
-
-    if (!ATTACHMENT(key)->orig.response.response_not_finished) {
-        if (strncasecmp((char*)ptr, "+OK", 3) != 0) {
-            ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
-        }
-    }
-
-    if (end_ptr == NULL) {
-        buffer_read_adv(b, n);
-        ATTACHMENT(key)->orig.response.response_not_finished = true;
-        return 0;
-    }
-
-    if (n != -1) {
-        buffer_read_adv(b, n);
-        ATTACHMENT(key)->orig.response.response_not_finished = false;
-        if ((unsigned int)n != count)
-            buffer_compact(b);
-    }
-
-    return n;
 }
 
 static void
