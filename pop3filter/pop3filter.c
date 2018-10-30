@@ -113,6 +113,11 @@ enum request_cmd_type {
             DEFAULT,
 };
 
+struct next_request {
+    enum request_cmd_type       cmd_type;
+    struct next_request         *next;
+};
+
 /** usado por HELLO */
 struct hello_st {
     /** buffer utilizado para I/O */
@@ -125,6 +130,9 @@ struct request_st {
     buffer                      *reqb;
     enum request_cmd_type       cmd_type;
     bool                        request_not_finished;
+
+    struct next_request         *next_cmd_type;
+    struct next_request         *last_cmd_type;
 };
 
 /** usado por RESPONSE */
@@ -139,6 +147,7 @@ struct response_st {
 struct filter_st {
     /** buffer utilizado para I/O */
     buffer                      *resb, *filb;
+    struct parser               *multi_parser;
 };
 
 /*
@@ -684,16 +693,21 @@ capa_read(struct selector_key *key)
         ptr = buffer_read_ptr(b, &count);
         if (strstr((char*)ptr, "PIPELINING"))
             ATTACHMENT(key)->origin_pipelining = true;
-        else
-            ATTACHMENT(key)->origin_pipelining = false;
-        buffer_read_adv(b, count);
 
-        //printf("%sHAY PIPELINING\n", ATTACHMENT(key)->origin_pipelining ? "" : "NO ");
-
-        selector_status ss = SELECTOR_SUCCESS;
-        ss |= selector_set_interest_key(key, OP_NOOP);
-        ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
-        ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+        if (!strstr((char*)ptr, "\r\n.\r\n")) {
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+            ret = SELECTOR_SUCCESS == ss ? CAPA : ERROR;
+        }
+        else {
+            buffer_reset(b);
+            printf("%sHAY PIPELINING\n", ATTACHMENT(key)->origin_pipelining ? "" : "NO ");
+            selector_status ss = SELECTOR_SUCCESS;
+            ss |= selector_set_interest_key(key, OP_NOOP);
+            ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_READ);
+            ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+        }
     } else {
         ret = ERROR;
     }
@@ -790,10 +804,32 @@ request_write(struct selector_key *key)
         ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
     }
     else {
-        if(SELECTOR_SUCCESS == selector_set_interest_key(key, OP_READ)) {
-            ret = RESPONSE;
-        } else {
-            ret = ERROR;
+        if (ATTACHMENT(key)->origin_pipelining) {
+            if (buffer_can_read(b)) {
+                if(SELECTOR_SUCCESS == selector_set_interest_key(key, OP_WRITE)) {
+                    ret = REQUEST;
+                } else {
+                    ret = ERROR;
+                }
+            }
+            else {
+                struct next_request *aux = ATTACHMENT(key)->client.request.next_cmd_type;
+                ATTACHMENT(key)->client.request.cmd_type = aux->cmd_type;
+                ATTACHMENT(key)->client.request.next_cmd_type = aux->next;
+                free(aux);
+                if(SELECTOR_SUCCESS == selector_set_interest_key(key, OP_READ)) {
+                    ret = RESPONSE;
+                } else {
+                    ret = ERROR;
+                }
+            }
+        }
+        else {
+            if(SELECTOR_SUCCESS == selector_set_interest_key(key, OP_READ)) {
+                ret = RESPONSE;
+            } else {
+                ret = ERROR;
+            }
         }
     }
 
@@ -910,6 +946,21 @@ send_next_request(struct selector_key *key, buffer * b) {
         }
 
         free(aux);
+
+        if (ATTACHMENT(key)->origin_pipelining) {
+            struct next_request *next = malloc(sizeof(next));
+            next->cmd_type = ATTACHMENT(key)->client.request.cmd_type;
+            next->next = NULL;
+            if (ATTACHMENT(key)->client.request.last_cmd_type == NULL) {
+                ATTACHMENT(key)->client.request.next_cmd_type = next;
+                ATTACHMENT(key)->client.request.last_cmd_type = next;
+            }
+            else {
+                ATTACHMENT(key)->client.request.last_cmd_type->next = next;
+                ATTACHMENT(key)->client.request.last_cmd_type = next;
+            }
+        }
+
     }
 
     if (end_ptr == NULL) {
@@ -921,8 +972,6 @@ send_next_request(struct selector_key *key, buffer * b) {
     if (n != -1) {
         buffer_read_adv(b, n);
         ATTACHMENT(key)->client.request.request_not_finished = false;
-        if ((unsigned int)n != count)
-            buffer_compact(b);
     }
 
     return n;  
@@ -1094,6 +1143,7 @@ response_write(struct selector_key *key)
                 ATTACHMENT(key)->orig.response.multi_parser = parser_init(parser_no_classes(), pop3_multi_parser());
                 if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
                     ATTACHMENT(key)->filter_pid = start_external_process(key);
+                    ATTACHMENT(key)->filter.filter.multi_parser = parser_init(parser_no_classes(), pop3_multi_parser());
                     if (ATTACHMENT(key)->filter_pid == -1) {
                         ret = ERROR;
                     }
@@ -1117,30 +1167,48 @@ response_write(struct selector_key *key)
                 else {
                     selector_status ss = SELECTOR_SUCCESS;
                     ss |= selector_set_interest_key(key, OP_NOOP);
-                    if (buffer_can_read(b)) {
-                        ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
-                        ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
-                    }
-                    else {
-                        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
-                        ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
-                    }
+                    ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+                    ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
                 }
             }
             else {
-                if (ATTACHMENT(key)->client.request.cmd_type == QUIT) {
+                if (ATTACHMENT(key)->client.request.cmd_type == QUIT) { 
+                    while(ATTACHMENT(key)->client.request.next_cmd_type != NULL) {
+                        struct next_request *aux = ATTACHMENT(key)->client.request.next_cmd_type;
+                        ATTACHMENT(key)->client.request.next_cmd_type = aux->next;
+                        free(aux);
+                    }
                     ret = DONE;
                 }
                 else {
-                    selector_status ss = SELECTOR_SUCCESS;
-                    ss |= selector_set_interest_key(key, OP_NOOP);
-                    if (buffer_can_read(b)) {
-                        ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
-                        ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+                    if (ATTACHMENT(key)->origin_pipelining) {
+                        struct next_request *aux = ATTACHMENT(key)->client.request.next_cmd_type;
+                        selector_status ss = SELECTOR_SUCCESS;
+                        ss |= selector_set_interest_key(key, OP_NOOP);
+                        if (aux != NULL) {
+                            ATTACHMENT(key)->client.request.cmd_type = aux->cmd_type;
+                            ATTACHMENT(key)->client.request.next_cmd_type = aux->next;
+                            free(aux);
+                            ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+                            ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+                        }
+                        else {
+                            ATTACHMENT(key)->client.request.last_cmd_type = NULL;
+                            ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
+                            ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+                        }
                     }
                     else {
-                        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
-                        ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+                        selector_status ss = SELECTOR_SUCCESS;
+                        ss |= selector_set_interest_key(key, OP_NOOP);
+                        if (buffer_can_read(b)) {
+                            ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+                            ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+                        }
+                        else {
+                            ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
+                            ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+                        }
                     }
                 }
             }
@@ -1162,17 +1230,35 @@ response_write(struct selector_key *key)
             ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
         } 
         else {
-            selector_status ss = SELECTOR_SUCCESS;
-            ss |= selector_set_interest_key(key, OP_NOOP);
-            if (buffer_can_read(b)) {
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
-                ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+            if (ATTACHMENT(key)->origin_pipelining) {
+                struct next_request *aux = ATTACHMENT(key)->client.request.next_cmd_type;
+                selector_status ss = SELECTOR_SUCCESS;
+                ss |= selector_set_interest_key(key, OP_NOOP);
+                if (aux != NULL) {
+                    ATTACHMENT(key)->client.request.cmd_type = aux->cmd_type;
+                    ATTACHMENT(key)->client.request.next_cmd_type = aux->next;
+                    free(aux);
+                    ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+                    ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+                }
+                else {
+                    ATTACHMENT(key)->client.request.last_cmd_type = NULL;
+                    ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
+                    ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+                }
             }
             else {
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
-                ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+                selector_status ss = SELECTOR_SUCCESS;
+                ss |= selector_set_interest_key(key, OP_NOOP);
+                if (buffer_can_read(b)) {
+                    ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+                    ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+                }
+                else {
+                    ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
+                    ret = SELECTOR_SUCCESS == ss ? REQUEST : ERROR;
+                }
             }
-       
         }
     }
 
@@ -1235,8 +1321,6 @@ send_next_response_status_line(struct selector_key *key, buffer * b) {
     if (n != -1) {
         buffer_read_adv(b, n);
         ATTACHMENT(key)->orig.response.response_not_finished = false;
-        if ((unsigned int)n != count)
-            buffer_compact(b);
     }
 
     return n;
@@ -1254,39 +1338,23 @@ send_next_response_multi_line(struct selector_key *key, buffer * b) {
 
     ptr = buffer_read_ptr(b, &count);
 
-    if (is_multi_response(ATTACHMENT(key)->client.request.cmd_type)) {
-
-        if (ATTACHMENT(key)->orig.response.multi_parser != NULL) {
-            while (buffer_can_read(b)) {
-                i++;
-                uint8_t c = buffer_read(b);
-                const struct parser_event *e = parser_feed(ATTACHMENT(key)->orig.response.multi_parser, c);
-                if (e->type == POP3_MULTI_FIN) {
-                    if (ATTACHMENT(key)->filter_pid != -1) {
-                        finish_external_process(key);
-                    }
-                    parser_destroy(ATTACHMENT(key)->orig.response.multi_parser);
-                    ATTACHMENT(key)->orig.response.multi_parser = NULL;
-                    n = send(key->fd, ptr, i, MSG_NOSIGNAL);
-                    return n;
-                }
+    while (buffer_can_read(b)) {
+        i++;
+        uint8_t c = buffer_read(b);
+        const struct parser_event *e = parser_feed(ATTACHMENT(key)->orig.response.multi_parser, c);
+        if (e->type == POP3_MULTI_FIN) {
+            if (ATTACHMENT(key)->filter_pid != -1) {
+                finish_external_process(key);
             }
-
-            n = send(key->fd, ptr, count, MSG_NOSIGNAL);
-            return 0;
+            parser_destroy(ATTACHMENT(key)->orig.response.multi_parser);
+            ATTACHMENT(key)->orig.response.multi_parser = NULL;
+            n = send(key->fd, ptr, i, MSG_NOSIGNAL);
+            return n;
         }
     }
-    else {
-        n = send(key->fd, ptr, count, MSG_NOSIGNAL);
-    }
 
-    if (n != -1) {
-        buffer_read_adv(b, n);
-        if ((unsigned int)n != count)
-            buffer_compact(b);
-    }
-
-    return n;  
+    n = send(key->fd, ptr, count, MSG_NOSIGNAL);
+    return 0;
 }
 
 static void
@@ -1298,6 +1366,9 @@ response_close(const unsigned state, struct selector_key *key)
 ////////////////////////////////////////////////////////////////////////////////
 // FILTER
 ////////////////////////////////////////////////////////////////////////////////
+
+static ssize_t
+write_next_response_multi_line_to_filter(struct selector_key *key, buffer * b);
 
 /** inicializa las variables del estado FILTER */
 static void
@@ -1361,23 +1432,17 @@ filter_write(struct selector_key *key)
     enum pop3filter_state ret = FILTER;
 
     buffer  *b         = d->resb;
-    uint8_t *ptr;
-    size_t  count;
     ssize_t  n;
 
-    ptr = buffer_read_ptr(b, &count);
-    n = write(key->fd, ptr, count);
+    n = write_next_response_multi_line_to_filter(key, b);
 
     if(n == -1) {
         ret = ERROR;
     } else {
-        buffer_read_adv(b, n);
-        if (!buffer_can_read(b)) {
-            selector_status ss = SELECTOR_SUCCESS;
-            ss |= selector_set_interest_key(key, OP_NOOP);
-            ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_out_fds[0], OP_READ);
-            ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
-        }
+        selector_status ss = SELECTOR_SUCCESS;
+        ss |= selector_set_interest_key(key, OP_NOOP);
+        ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_out_fds[0], OP_READ);
+        ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
     }
 
     if(ret == ERROR) {
@@ -1398,6 +1463,34 @@ filter_write(struct selector_key *key)
     }
     
     return ret;
+}
+
+static ssize_t
+write_next_response_multi_line_to_filter(struct selector_key *key, buffer * b) {
+    uint8_t *ptr;
+    size_t i = 0;
+    size_t  count;
+    ssize_t  n;
+
+    if (!buffer_can_read(b))
+        return 0;
+
+    ptr = buffer_read_ptr(b, &count);
+
+    while (buffer_can_read(b)) {
+        i++;
+        uint8_t c = buffer_read(b);
+        const struct parser_event *e = parser_feed(ATTACHMENT(key)->filter.filter.multi_parser, c);
+        if (e->type == POP3_MULTI_FIN) {
+            parser_destroy(ATTACHMENT(key)->filter.filter.multi_parser);
+            ATTACHMENT(key)->filter.filter.multi_parser = NULL;
+            n = write(key->fd, ptr, i);
+            return n;
+        }
+    }
+
+    n = write(key->fd, ptr, count);
+    return n;
 }
 
 static void
