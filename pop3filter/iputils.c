@@ -24,3 +24,7 @@ int string_to_ip(char *string, struct sockaddr *sa) {
         return AF_INET6;
     return AF_UNSPEC;
 }
+
+int ip_type_max_length(struct sockaddr_storage ip) {
+    return ip.ss_family == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN; 
+}
