@@ -128,7 +128,7 @@ struct hello_st {
 /** usado por REQUEST */
 struct request_st {
     /** buffer utilizado para I/O */
-    buffer                      *reqb;
+    buffer                      *reqb, *areqb;
     enum request_cmd_type       cmd_type;
     bool                        request_not_finished;
 
@@ -207,8 +207,8 @@ struct pop3filter {
     } orig;
     
     /** buffers para ser usados read_buffer, write_buffer.*/
-    uint8_t raw_buff_a[MAX_BUFFER], raw_buff_b[MAX_BUFFER], raw_buff_c[MAX_BUFFER];
-    buffer request_buffer, response_buffer, filter_buffer;
+    uint8_t raw_buff_a[MAX_BUFFER], raw_buff_b[MAX_BUFFER], raw_buff_c[MAX_BUFFER], raw_buff_d[MAX_BUFFER];
+    buffer request_buffer, response_buffer, filter_buffer, aux_request_buffer;
     
     /** cantidad de referencias a este objeto. si es uno se debe destruir */
     unsigned references;
@@ -259,6 +259,7 @@ pop3filter_new(int client_fd) {
     buffer_init(&ret->request_buffer,  N(ret->raw_buff_a), ret->raw_buff_a);
     buffer_init(&ret->response_buffer,  N(ret->raw_buff_b), ret->raw_buff_b);
     buffer_init(&ret->filter_buffer,  N(ret->raw_buff_c), ret->raw_buff_c);
+    buffer_init(&ret->aux_request_buffer,  N(ret->raw_buff_d), ret->raw_buff_d);
 
     ret->references = 1;
 finally:
@@ -722,6 +723,7 @@ request_init(const unsigned state, struct selector_key *key)
 {
     struct request_st * d = &ATTACHMENT(key)->client.request;
     d->reqb = &ATTACHMENT(key)->request_buffer;
+    d->areqb = &ATTACHMENT(key)->aux_request_buffer;
 }
 
 /** Lee la request del cliente */
@@ -785,6 +787,14 @@ request_write(struct selector_key *key)
                 }
             }
             else {
+                buffer *ab            = d->areqb;
+                uint8_t *aptr;
+                size_t  count;
+
+                aptr = buffer_read_ptr(ab, &count);
+                n = send(ATTACHMENT(key)->origin_fd, aptr, count, MSG_NOSIGNAL);
+                buffer_read_adv(ab, n);
+
                 struct next_request *aux = ATTACHMENT(key)->client.request.next_cmd_type;
                 ATTACHMENT(key)->client.request.cmd_type = aux->cmd_type;
                 ATTACHMENT(key)->client.request.next_cmd_type = aux->next;
@@ -836,7 +846,18 @@ send_next_request(struct selector_key *key, buffer * b) {
     }
     else {
         n = end_ptr - ptr + 1;
-        n = send(ATTACHMENT(key)->origin_fd, ptr, n, MSG_NOSIGNAL);
+        if (ATTACHMENT(key)->origin_pipelining) {
+            buffer *ab            = ATTACHMENT(key)->client.request.areqb;
+            uint8_t *aptr;
+            size_t  count;
+
+            aptr = buffer_write_ptr(ab, &count);
+            memcpy(aptr, ptr, n);
+            buffer_write_adv(ab, n);
+        }
+        else {
+            n = send(ATTACHMENT(key)->origin_fd, ptr, n, MSG_NOSIGNAL);
+        }
     }
 
     if (!ATTACHMENT(key)->client.request.request_not_finished) {
