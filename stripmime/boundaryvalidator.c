@@ -38,10 +38,10 @@ int checkboundary(boundaryvalidator* bv, char c)
 			bv->stillvalid = 0;
 			return 0;
 		}
+		if(bv->stillvalid)
+			(bv->index)++;
 
-		(bv->index)++;
-
-		return 1;
+		return bv->stillvalid;
 	}
 
 

@@ -11,6 +11,7 @@ typedef struct contentypevalidator
 	int ignore;
 	int index;
 	int matchfound;
+	int lastmatch;
 	
 }contentypevalidator;
 

@@ -6,26 +6,29 @@
 headervalidator* initheadervalidator()
 {
 	headervalidator* hv = malloc(sizeof(headervalidator));
-	hv->headers = malloc(sizeof(char*) * 3);
+	hv->headers = malloc(sizeof(char*) * 4);
 	hv->headers[0] = "content-type";
-	hv->headers[1] = "mime-version";
-	hv->headers[2] = "content-transfer-enconding";
-	hv->isvalid = malloc(sizeof(int) * 3);
-	for(int i = 0; i < 3; i++)
+	hv->headers[1] = "content-transfer-enconding";
+	hv->headers[2] = "content-length";
+	hv->headers[3] = "content-md5";
+	hv->isvalid = malloc(sizeof(int) * 4);
+	for(int i = 0; i < 4; i++)
 	{
 		hv->isvalid[i] = 1;
 	}
 	hv->matchfound = 0;
 	hv->index = 0;
 	hv->stillvalid = 1;
+	hv->lastmatch = 0;
 	return hv;
 }
 
 int checkheader(headervalidator* hv, char c)
 {
 	hv->stillvalid = 0;
-	for(int i = 0; i < 3; i++)
+	for(int i = 0; i < 4; i++)
 	{
+		hv->lastmatch = i;
 		if(hv->isvalid[i])
 		{
 			if(c == ':' && hv->headers[i][hv->index] == 0)
@@ -46,7 +49,10 @@ int checkheader(headervalidator* hv, char c)
 			}
 		}
 	}
-	(hv->index)++;
+	
+	if(hv->stillvalid)
+		(hv->index)++;
+
 	return hv->stillvalid;
 }
 

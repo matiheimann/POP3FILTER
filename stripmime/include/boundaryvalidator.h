@@ -10,6 +10,7 @@ typedef struct boundaryvalidator
 	int stillvalid;
 	int end;
 
+
 }boundaryvalidator;
 
 boundaryvalidator* initboundaryvalidator();

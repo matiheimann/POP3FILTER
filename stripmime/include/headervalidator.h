@@ -4,8 +4,9 @@
 typedef enum matches
 {
 	CONTENT_TYPE = 1,
-	MIME_VERSION,
-	CONTENT_TRANSFER_ENCONDING
+	CONTENT_TRANSFER_ENCONDING, 
+	CONTENT_LENGTH,
+	CONTENT_MD5
 }matches;
 
 typedef struct headervalidator
@@ -16,6 +17,7 @@ typedef struct headervalidator
 	int* isvalid;
 	int stillvalid;
 	int matchfound;
+	int lastmatch;
 
 }headervalidator;
 
