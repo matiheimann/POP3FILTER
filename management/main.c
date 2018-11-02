@@ -35,8 +35,7 @@ int main(int argc, char* const argv[])
 	const char* err_msg = NULL;
 	uint8_t *ptr; //buffer pointer
 	size_t  count;
-	ssize_t  n; 
-	bool messageComplete; //received full POP3FMP message
+	ssize_t  n;
 
 	struct sockaddr_in addr;
 	memset(&addr, 0, sizeof(addr));
@@ -75,22 +74,18 @@ int main(int argc, char* const argv[])
 				err_msg = "unable to send SCTP msg";
 				goto finally;
 			}
-
-			messageComplete = false;
-			while(!messageComplete)
+			ptr = buffer_write_ptr(b, &count);
+			n = sctp_recvmsg(connection, ptr, count, NULL, 0 , 0, 0);
+			
+			if(n > 0)
 			{
-				ptr = buffer_write_ptr(b, &count);
-				n = sctp_recvmsg(connection, ptr, count, NULL, 0 , 0, 0);
-				if(n > 0)
-				{
-					buffer_write_adv(b, n);
-					messageComplete = receivePOP3FMPRequest(b, n);
-				}
-				else
-				{
-					err_msg = "unable to receive SCTP msg";
-					goto finally;
-				}
+				buffer_write_adv(b, n);
+				receivePOP3FMPResponse(b, n);
+			}
+			else
+			{
+				err_msg = "unable to receive SCTP msg";
+				goto finally;
 			}
 		}
 	}
