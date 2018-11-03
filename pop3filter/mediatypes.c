@@ -56,3 +56,21 @@ int isValidMediaType(char* mediatype)
 	return 1;
 }
 
+int checkMediaTypes(char* mediatypes)
+{
+	int i, j;
+	for( i = 0, j = 0; mediatypes[i] != '\0' ; i++)
+	{
+		if(mediatypes[i] == ',')
+		{
+			mediatypes[i] = '\0';
+			if (!isValidMediaType(mediatypes + j))
+			{
+				return 0;
+			}
+			mediatypes[i] = ',';
+			j = i + 1;	
+		}
+	}
+	return isValidMediaType(mediatypes + j);
+}

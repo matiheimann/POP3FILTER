@@ -10,7 +10,7 @@ static int stringIndex; // automatically value is zero
 static int state = START;
 
 
-int receivePOP3FMPRequest(buffer *b, int count)
+int receivePOP3FMPResponse(buffer *b, int count)
 {
 
 	while(count > 0)
@@ -116,7 +116,7 @@ void transitions(unsigned char feed)
 									{
 										state = END;
 									}
-									else if(isalnum(feed))
+									else if(feed == ',' || isalnum(feed))
 									{
 										str[stringIndex] = feed;
 										stringIndex++;

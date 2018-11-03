@@ -6,11 +6,13 @@
 #include <unistd.h>  // close
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/sctp.h>
 
 #include "management.h"
 #include "selector.h"
 #include "buffer.h"
 #include "options.h"
+#include "pop3FMP.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -119,7 +121,7 @@ management_read(struct selector_key *key) {
     ssize_t  n;
 
     ptr = buffer_write_ptr(&data->read_buffer, &count);
-    n = recv(key->fd, ptr, count, 0);
+    n = sctp_recvmsg(key->fd, ptr, count, NULL, 0, 0, 0);
 
     if(n > 0) {
         buffer_write_adv(&data->read_buffer, n);
@@ -134,18 +136,16 @@ static void
 management_write(struct selector_key *key) {
 	struct management * data = ATTACHMENT(key);
 
-	uint8_t *ptr;
-	size_t  count;
+    uint8_t *response;
+    int size;
     ssize_t  n;
 
-	const char * msg = "Received command: ";
-	n = strlen(msg);	
-	send(key->fd, msg, n, MSG_NOSIGNAL);
-
-	ptr = buffer_read_ptr(&data->read_buffer, &count);
-    n = send(key->fd, ptr, count, MSG_NOSIGNAL);
-    buffer_read_adv(&data->read_buffer, n);
-
+    response = receivePOP3FMPRequest(&data->read_buffer, &size);
+    n = sctp_sendmsg(key->fd, response, size, NULL, 0, 0, 0, 0, 0, 0);
+    if(n == 0)
+    {
+        // TODO: register error.
+    }
     if(SELECTOR_SUCCESS != selector_set_interest_key(key, OP_READ)) {
        selector_unregister_fd(key->s, data->client_fd);
     }
