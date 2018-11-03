@@ -3,6 +3,9 @@
 
 #define MAX_RESPONSE 250
 
+#define MAX_USER 16
+#define MAX_PASSWORD 16
+
 enum POP3FMP_REQUEST_STATES {
     START,
     ERROR,
@@ -21,6 +24,7 @@ enum POP3FMP_REQUEST_STATES {
     /** string */
     STRING,
 };
+
 
 uint8_t* receivepop3FMP(buffer* b, int* size);
 
