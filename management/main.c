@@ -10,7 +10,6 @@
 #include <ctype.h> 
 #include <unistd.h>
 #include <sys/types.h>
-#include <netinet/sctp.h>
 
 #include "options.h"
 #include "buffer.h"

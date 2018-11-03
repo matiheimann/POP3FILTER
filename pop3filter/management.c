@@ -7,6 +7,8 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/sctp.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 #include "management.h"
 #include "selector.h"

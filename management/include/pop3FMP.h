@@ -24,6 +24,6 @@ enum POP3FMP_RESPONSE_STATES {
 };
 
 void transitions(unsigned char feed);
-int receivePOP3FMPRequest(buffer * b, int count);
+int receivePOP3FMPResponse(buffer * b, int count);
 
 #endif
