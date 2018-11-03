@@ -1,6 +1,15 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <errno.h>
+#include <signal.h>
+#include <sys/socket.h> 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <netinet/in.h>
 
 #include "pop3FMP.h"
 #include "mediatypes.h"
@@ -8,30 +17,31 @@
 
 uint8_t* receivePOP3FMPRequest(buffer* b, int* size)
 {
-	char* str = (uint8_t*) calloc(MAX_RESPONSE, sizeof(uint8_t));
+	char* str = (char*) calloc(MAX_RESPONSE, sizeof(char));
 	uint8_t* response = (uint8_t*) calloc(MAX_RESPONSE, sizeof(uint8_t));
 	int strIndex = 0;
 	
 	int state = START;
 	
-	unsigned char firstByte = (unsigned char) buffer_read(b);
+	uint8_t firstByte = buffer_read(b);
 	buffer_read_adv(b, 1);
 
 	/** Version check */
 
 	if(buffer_can_read(b))
 	{
-		*size =2 // Set size of response
+		*size =2; // Set size of response
 		if(buffer_read(b) != 0x1)
 		{
 			response[0] = 0xFD; // VERSION NOT SUPPORTED
 			response[1] = 0x1; // SUPPORTED VERSION
+			free(str);
 			return response;
 		}
 		else
 		{
 			response[1] = 0x1; //SUPPORTED VERSION
-			transitions(firstByte, &state, response, size, sr, &strIndex);
+			transitions(firstByte, &state, response, size, str, &strIndex);
 		}
 		buffer_read_adv(b, 1);
 	}
@@ -57,6 +67,7 @@ uint8_t* receivePOP3FMPRequest(buffer* b, int* size)
 			response[0] = 0xFF;
 			response[1] = 0x1;
 			*size = 2;
+			break;
 		}
 		else if(state == CLOSE_CONNECTION)
 		{
@@ -75,11 +86,12 @@ uint8_t* receivePOP3FMPRequest(buffer* b, int* size)
 			options->command = str;
 		}
 	}
+	free(str);
 	return response;
 }
 
 
-void transitions(uint8_t* feed, int* state, uint8_t* response, int * size, char* str, int* strIndex)
+int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* str, int* strIndex)
 {
 	switch(*state)
 	{
@@ -155,7 +167,7 @@ void transitions(uint8_t* feed, int* state, uint8_t* response, int * size, char*
 					}
 					else if(feed == 0x02)
 					{
-						strcpy(response + *size, options->command);
+						strcpy((char*)(response + *size), options->command);
 						*size += strlen(options->command) + 1;
 						*state = END;
 					}
@@ -167,7 +179,6 @@ void transitions(uint8_t* feed, int* state, uint8_t* response, int * size, char*
 		case SET_MEDIATYPES: 	if(feed == '\0')
 								{
 									str[*strIndex] = feed;
-									*strIndex++;
 									if(checkMediaTypes(str))
 									{
 										strcpy((char*)(response + *size), "+OK");
@@ -183,13 +194,12 @@ void transitions(uint8_t* feed, int* state, uint8_t* response, int * size, char*
 								else
 								{
 									str[*strIndex] = feed;
-									*strIndex++;
+									(*strIndex)++;
 								}
 								break;
 		case SET_MESSAGE:	if(feed != '\0')
 							{
 								str[*strIndex] = feed;
-								*strIndex++;
 								strcpy((char*)(response + *size), "+OK");
 								*size += strlen("+OK") + 1;
 								*state = END_SET_MESSAGE;
@@ -197,13 +207,12 @@ void transitions(uint8_t* feed, int* state, uint8_t* response, int * size, char*
 							else
 							{
 								str[*strIndex] = feed;
-								*strIndex++;
+								(*strIndex)++;
 							}
 							break;
 		case SET_FILTER:	if(feed != '\0')
 							{
 								str[*strIndex] = feed;
-								*strIndex++;
 								if(isValidFile(str))
 								{
 									strcpy((char*)(response + *size), "+OK");
@@ -218,28 +227,26 @@ void transitions(uint8_t* feed, int* state, uint8_t* response, int * size, char*
 							else
 							{
 								str[*strIndex] = feed;
-								*strIndex++;
+								(*strIndex)++;
 							}
 							break;
 		case USER: 	if(*strIndex < MAX_USER)
 					{
-						if(feed = '\0')
+						if(feed == '\0')
 						{
 							str[*strIndex] = feed;
-							*strIndex++;
 							strcpy((char*)(response + *size), "+OK");
 							*size += strlen("+OK") + 1;
 							*state = END;
 						}
-						else if(isalnum((char)feed))
+						else if(feed > 0 && feed <= 128)
 						{
 							str[*strIndex] = feed;
-							*strIndex++;
+							(*strIndex)++;
 						}
 						else
 						{
-							str[*strIndex] = feed;
-							*strIndex++;
+							*state = END_BAD_REQUEST;
 						}
 					}
 					else
@@ -249,10 +256,9 @@ void transitions(uint8_t* feed, int* state, uint8_t* response, int * size, char*
 					break;
 		case PASS:	if(*strIndex < MAX_USER)
 					{
-						if(feed = '\0')
+						if(feed == '\0')
 						{
 							str[*strIndex] = feed;
-							*strIndex++;
 							strcpy((char*)(response + *size), "+OK");
 							*size += strlen("+OK") + 1;
 							*state = END;
@@ -260,7 +266,7 @@ void transitions(uint8_t* feed, int* state, uint8_t* response, int * size, char*
 						else if(feed > 0 && feed <= 128)
 						{
 							str[*strIndex] = feed;
-							*strIndex++;
+							(*strIndex)++;
 						}
 						else
 							*state = END_BAD_REQUEST;
@@ -270,7 +276,7 @@ void transitions(uint8_t* feed, int* state, uint8_t* response, int * size, char*
 						*state = END_BAD_REQUEST;
 					}
 					break;
-		case default: return 0;
+		default: return 0;
 	}
 	return 1;
 }

@@ -6,11 +6,13 @@
 #include <unistd.h>  // close
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/sctp.h>
 
 #include "management.h"
 #include "selector.h"
 #include "buffer.h"
 #include "options.h"
+#include "pop3FMP.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -138,7 +140,7 @@ management_write(struct selector_key *key) {
     int size;
     ssize_t  n;
 
-    response = receivePOP3FMP(&data->read_buffer, &size);
+    response = receivePOP3FMPRequest(&data->read_buffer, &size);
     n = sctp_sendmsg(key->fd, response, size, NULL, 0, 0, 0, 0, 0, 0);
     if(n == 0)
     {
