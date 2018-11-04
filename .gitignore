@@ -189,5 +189,6 @@ $RECYCLE.BIN/
 #Binary files
 *.o
 
+stripmime/mensajes
 
 # End of https://www.gitignore.io/api/clion,linux,macos,windows,sublimetext,visualstudiocode
