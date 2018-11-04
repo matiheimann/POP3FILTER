@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdio.h>
 #include <ctype.h>
 
 #include "contenttypevalidator.h"
@@ -90,9 +91,9 @@ int checkmediatypes(contentypevalidator* ctp, char c)
 	ctp->stillValid = 0;
 	for(int i = 0; i < ctp->quantityMediaTypes; i++)
 	{
-		ctp->lastmatch = i;
 		if(ctp->isValid[i])
 		{
+			ctp->lastmatch = i;
 			/*Caracter a comparar en los media types*/
 			int carachter = ctp->startingIndex[i] + ctp->index;
 			if(ctp->mediatypes[carachter] == '*')

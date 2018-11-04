@@ -7,6 +7,7 @@
 #include "stackint.h"
 #include "boundaryvalidator.h"
 #include "boundarycomparator.h"
+#include "extra.h"
 
 typedef enum states
 {
@@ -23,6 +24,7 @@ typedef enum states
 	WAIT_FOR_BODY,
 	WAIT_UNTIL_END,
 	WAIT_UNTIL_BOUNDARY,
+	WAIT_UNTIL_NEW_LINE_BODY,
 	IGNORE_UNTIL_NEW_LINE,
 	IGNORE_UNTIL_BOUNDARY,
 	IGNORE_CARRY_RETURN,
@@ -45,6 +47,8 @@ typedef struct ctx
 	int contenttypedeclared;
 	/*Flag de transfer econding encontrado*/
 	int encondingdeclared;
+	/*Se guarda el encoding*/
+	char* encondingselected;
 	/*Flag de content length declarado*/
 	int contentlengthdeclared;
 	/*Flag de md5sum declarado*/
@@ -66,6 +70,8 @@ typedef struct ctx
 	boundarycomparator* bc;
 	/*Stack para saber el proximo boundary a encontrar*/
 	stackstring* boundaries;
+	/*Buffer para informacion extra*/
+	extrainformation* extra;
 
 
 }ctx;
