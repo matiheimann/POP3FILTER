@@ -31,11 +31,16 @@ void setConfiguration(int argc, char* const argv[])
 			case 'o':
 				setManagementPort(optarg);
 				break;
+			case 'h':
+				printHelp();
+				break;
 			default:
 				exit(0);
 				break;
 		}
 	}
+	if (argv[optind] == NULL) 
+  		printHelp();
 }
 
 int isANumericArgument(char* value, char param)
@@ -63,4 +68,16 @@ void setManagementPort(char* port)
 {
 	isANumericArgument(port, 'o');
 	options->managementPort = atoi(port);
+}
+
+void printHelp()
+{
+	printf("Use: management [OPTIONS] <proxy>\n");
+    printf(" - Management tool for changing pop3filter configuration\n");
+    printf("and geting metrics -\n\n");
+    printf("Options:\n");
+	printf("-h for help.\n");
+	printf("-L to set the management direction of the pop3filter.\n");
+	printf("-o to set the management port of the pop3filter.\n");
+	exit(0);
 }

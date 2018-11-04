@@ -23,7 +23,8 @@ enum POP3FMP_RESPONSE_STATES {
     STRING,
 };
 
-void transitions(unsigned char feed);
-int receivePOP3FMPResponse(buffer * b, int count);
+void transitions(uint8_t feed, int* state, char* str, int* strIndex);
+int receivePOP3FMPResponse(buffer * b);
+void consumeBuffer(buffer* b);
 
 #endif

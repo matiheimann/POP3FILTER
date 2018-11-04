@@ -18,17 +18,14 @@
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
-static bool done = false;
-static buffer* b;
-static uint8_t raw_buff[1024];
-
 int main(int argc, char* const argv[])
 {
 	setConfiguration(argc, argv);
-
+	buffer b;
+	uint8_t raw_buff[1024];
+	bool done = false;
 	int connection;
 	int conn;
-
 	int send;
 
 	const char* err_msg = NULL;
@@ -59,27 +56,27 @@ int main(int argc, char* const argv[])
 		goto finally;
 	}
 	printf("Please enter a command and press enter.\n-help to ask for help\n");
-	buffer_init(b,  N(raw_buff), raw_buff);
+	buffer_init(&b,  N(raw_buff), raw_buff);
 	while(!done)
 	{
 		int dataSize;
 		unsigned char* request = readCommand(&dataSize);
 		if(request != NULL)
 		{
-			send = sctp_sendmsg(connection, (void*) request, dataSize,
+			send = sctp_sendmsg(connection, request, dataSize,
 								NULL, 0, 0, 0, 0, 0, 0);
 			if(send == -1)
 			{
 				err_msg = "unable to send SCTP msg";
 				goto finally;
 			}
-			ptr = buffer_write_ptr(b, &count);
+			ptr = buffer_write_ptr(&b, &count);
 			n = sctp_recvmsg(connection, ptr, count, NULL, 0 , 0, 0);
 			
 			if(n > 0)
 			{
-				buffer_write_adv(b, n);
-				receivePOP3FMPResponse(b, n);
+				buffer_write_adv(&b, n);
+				receivePOP3FMPResponse(&b);
 			}
 			else
 			{

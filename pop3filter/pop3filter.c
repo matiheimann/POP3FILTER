@@ -644,7 +644,8 @@ hello_write(struct selector_key *key)
 }
 
 static void
-hello_close(const unsigned state, struct selector_key *key) {
+hello_close(const unsigned state, struct selector_key *key)
+{
     
 }
 

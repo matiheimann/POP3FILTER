@@ -45,5 +45,6 @@ enum POP3FMP_REQUEST_STATES {
 
 uint8_t* receivePOP3FMPRequest(buffer* b, int* size);
 int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* str, int* strIndex);
+void consumeBuffer(buffer* b);
 
 #endif

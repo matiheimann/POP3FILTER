@@ -64,6 +64,7 @@ uint8_t* receivePOP3FMPRequest(buffer* b, int* size)
 			END_SET_FILTER) && buffer_can_read(b)) 
 			|| state == END_BAD_REQUEST)
 		{
+			consumeBuffer(b);
 			response[0] = 0xFF;
 			response[1] = 0x1;
 			*size = 2;
@@ -279,6 +280,14 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 		default: return 0;
 	}
 	return 1;
+}
+
+void consumeBuffer(buffer* b)
+{
+	while(buffer_can_read(b))
+	{
+		buffer_read_adv(b,1);
+	}
 }
 
 

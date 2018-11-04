@@ -16,5 +16,6 @@ void setConfiguration(int argc, char* const argv[]);
 void setManagementDirection(char* dir);
 void setManagementPort(char* port);
 int isANumericArgument(char* value, char param);
+void printHelp();
 
 #endif
