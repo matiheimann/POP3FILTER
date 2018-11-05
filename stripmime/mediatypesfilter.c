@@ -195,12 +195,17 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					if(context->bv == NULL)
 					{
 						context->bv = initboundaryvalidator();
+						context->extra = initextrainformation(5);
 					}
 
 					checkboundary(context->bv, buffer[i]);
+					addchar(context->extra, buffer[i]);
 
 					if(context->bv->end)
 					{
+						endextrainformation(context->extra);
+						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
+						context->extra = NULL;
 						pushString(context->boundaries, context->bv->boundary);
 						context->bv = NULL;
 						popInt(context->actions);
@@ -341,6 +346,14 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 							{
 								write(STDOUT_FILENO, "--\r\n", 4);
 								popString(context->boundaries);
+								if(peekString(context->boundaries) == NULL)
+								{
+									pushInt(context->actions, WAIT_UNTIL_END);
+								}
+								else
+								{
+									pushInt(context->actions, WAIT_UNTIL_BOUNDARY);
+								}
 							}
 							else
 							{
@@ -401,6 +414,14 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 							{
 								write(STDOUT_FILENO, "--\r\n", 4);
 								popString(context->boundaries);
+								if(peekString(context->boundaries) == NULL)
+								{
+									pushInt(context->actions, WAIT_UNTIL_END);
+								}
+								else
+								{
+									pushInt(context->actions, WAIT_UNTIL_BOUNDARY);
+								}
 							}
 							else
 							{
@@ -451,6 +472,7 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 		}
 	}
 	while(n > 0);
+
 }
 
 ctx* initcontext(char* censoredMediaTypes)
