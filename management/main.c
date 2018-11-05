@@ -30,7 +30,7 @@ int main(int argc, char* const argv[])
 	uint8_t *ptr; //buffer pointer
 	size_t  count;
 	ssize_t  n;
-	printf("iafoinasfoidn");
+
 	
 	if (((struct sockaddr*)&options->managementAddress)->sa_family == AF_INET)
 	{
@@ -86,6 +86,7 @@ int main(int argc, char* const argv[])
 				err_msg = "unable to receive SCTP msg";
 				goto finally;
 			}
+			buffer_reset(&b);
 		}
 	}
 

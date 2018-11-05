@@ -15,7 +15,6 @@ unsigned char* readCommand(int* size)
 	unsigned char* ret;
 	fgets(buffer, BUFFER_COMMAND_SIZE, stdin);
 	*strstr(buffer, "\n") = '\0';
-	printf("%s\n", buffer);
 	if(strcmp(buffer, "concurrent connections") == 0)
 	{
 		ret = (unsigned char*) calloc(2, sizeof(char));
@@ -71,7 +70,7 @@ unsigned char* readCommand(int* size)
 	else if(startsWith(buffer, "set mediatypes ") && checkValidMediaTypes(buffer + 15))
 	{
 		int strlength = strlen(buffer + 15);
-		ret = (unsigned char*) calloc(strlength + 1, sizeof(char));
+		ret = (unsigned char*) calloc(strlength + 4, sizeof(char));
 		*(ret) = 0x81; // 10000000
 		*(ret + 1) = 0x1;
 		*(ret + 2) = 0x0;
@@ -81,7 +80,7 @@ unsigned char* readCommand(int* size)
 	else if(startsWith(buffer, "set replacement message ")) // TODO: Is it necesary to check if valid?
 	{
 		int strlength = strlen(buffer + 24);
-		ret = (unsigned char*) calloc(strlength + 1, sizeof(char));
+		ret = (unsigned char*) calloc(strlength + 4, sizeof(char));
 		*(ret) = 0x81;
 		*(ret + 1) = 0x1;
 		*(ret + 2) = 0x1;
@@ -91,7 +90,7 @@ unsigned char* readCommand(int* size)
 	else if(startsWith(buffer, "set filter command ")) // TODO: check valid command
 	{
 		int strlength = strlen(buffer + 19);
-		ret = (unsigned char*) calloc(strlength + 1, sizeof(char));
+		ret = (unsigned char*) calloc(strlength + 4, sizeof(char));
 		*(ret) = 0x81;
 		*(ret + 1) = 0x1;
 		*(ret + 2) = 0x2;
@@ -101,7 +100,7 @@ unsigned char* readCommand(int* size)
 	else if(startsWith(buffer, "user ")) // TODO: check valid user
 	{
 		int strlength = strlen(buffer + 5);
-		ret = (unsigned char*) calloc(strlength + 1, sizeof(char));
+		ret = (unsigned char*) calloc(strlength + 3, sizeof(char));
 		*(ret) = 0x83;
 		*(ret + 1) = 0x1;
 		strcpy((char*) ret + 2, buffer + 5);
@@ -110,7 +109,7 @@ unsigned char* readCommand(int* size)
 	else if(startsWith(buffer, "password ")) // TODO: check valid password
 	{
 		int strlength = strlen(buffer + 9);
-		ret = (unsigned char*) calloc(strlength + 1, sizeof(char));
+		ret = (unsigned char*) calloc(strlength + 3, sizeof(char));
 		*(ret) = 0x84;
 		*(ret + 1) = 0x1;
 		strcpy((char*) ret + 2, buffer + 9);
@@ -130,6 +129,7 @@ unsigned char* readCommand(int* size)
 	}
 	else
 	{
+		printf("Command is not valid.\n");
 		ret = NULL;
 	}
 	return ret;
