@@ -51,6 +51,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 						}
 						else
 						{
+							pushInt(context->actions, WAIT_FOR_NEW_LINE);
 							write(STDOUT_FILENO, buffer + i, 1);
 						}
 					}
@@ -58,9 +59,13 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					{
 						/*Solo se popea ya que corresponde a line folding, por lo tanto,
 						se vuelve a la accion anterior.*/
-						if(peekInt(context->actions) == -1)
-						{
-							pushInt(context->actions, WAIT_FOR_NEW_LINE);
+						if(peekInt(context->actions) != CHECKING_CONTENT_TYPE &&
+							peekInt(context->actions) != CHECKING_TRANSFER_ENCODING){
+							write(STDOUT_FILENO, buffer + i, 1);
+							if(peekInt(context->actions) == -1)
+							{
+								pushInt(context->actions, WAIT_FOR_NEW_LINE);
+							}
 						}
 					}
 					else if(buffer[i] == '\r')
