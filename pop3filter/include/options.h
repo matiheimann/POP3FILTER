@@ -35,7 +35,6 @@ void setOriginPort(char* port);
 void setCommand(char* cmd);
 void printVersion();
 char* strcatFixStrings(char* s1, char* s2);
-void setFilterEnviromentVariables(char* mediaTypesCensored, char* replacementMessage);
 int isValidFile(char* file);
 
 #endif
