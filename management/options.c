@@ -8,6 +8,7 @@
 #include <sys/socket.h> 
 
 #include "options.h"
+#include "iputils.h"
 
 options_st * options;
 
@@ -15,18 +16,19 @@ void setConfiguration(int argc, char* const argv[])
 {
 	/* Initialize default values */
    	options = malloc(sizeof(*options));
-	options->pop3Direction = INADDR_ANY;
-	options->managementDirection = INADDR_LOOPBACK;
+	memset(&(options->managementAddress), 0, sizeof(options->managementAddress));
+	((struct sockaddr_in*)&options->managementAddress)->sin_family = AF_INET;
+	((struct sockaddr_in*)&options->managementAddress)->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	options->managementPort = 9090;
 
 	char c;
 
-	while((c = getopt(argc, argv, "L:o")) != -1)
+	while((c = getopt(argc, argv, "L:o:")) != -1)
 	{
 		switch(c)
 		{
 			case 'L':
-				setManagementDirection(optarg);
+				setManagementAddress(optarg);
 				break;
 			case 'o':
 				setManagementPort(optarg);
@@ -39,8 +41,6 @@ void setConfiguration(int argc, char* const argv[])
 				break;
 		}
 	}
-	if (argv[optind] == NULL) 
-  		printHelp();
 }
 
 int isANumericArgument(char* value, char param)
@@ -58,11 +58,11 @@ int isANumericArgument(char* value, char param)
 	return 1;
 }
 
-void setManagementDirection(char* dir)
+void setManagementAddress(char* dir)
 {
-	isANumericArgument(dir, 'L');
-	options->managementDirection = atoi(dir);
+	options->managementAddress.sin6_family = string_to_ip(dir, (struct sockaddr*)&(options->managementAddress));
 }
+
 
 void setManagementPort(char* port)
 {

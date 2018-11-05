@@ -24,32 +24,35 @@ int main(int argc, char* const argv[])
 	buffer b;
 	uint8_t raw_buff[1024];
 	bool done = false;
-	int connection;
-	int conn;
-	int send;
+	int connection, conn, send;
 
 	const char* err_msg = NULL;
 	uint8_t *ptr; //buffer pointer
 	size_t  count;
 	ssize_t  n;
-
-	struct sockaddr_in addr;
-	memset(&addr, 0, sizeof(addr));
-	addr.sin_family 		= AF_INET;
-	addr.sin_addr.s_addr 	= htonl(options->managementDirection); // TODO:
-	addr.sin_port 			= htons(options->managementPort); // TODO:
+	printf("iafoinasfoidn");
+	
+	if (((struct sockaddr*)&options->managementAddress)->sa_family == AF_INET)
+	{
+        ((struct sockaddr_in*)&options->managementAddress)->sin_port = htons(options->managementPort);
+	}
+    else if (((struct sockaddr*)&options->managementAddress)->sa_family == AF_INET6)
+    {
+        ((struct sockaddr_in6*)&options->managementAddress)->sin6_port = htons(options->managementPort);
+    }
 
 	printf("Welcome to the management tool.\n");
 	printf("You can use it to get metrics or change the proxy pop3 filter settings.\n");
-
-	connection = socket(AF_INET, SOCK_STREAM, IPPROTO_SCTP);
+	
+	connection = socket(((struct sockaddr*)&options->managementAddress)->sa_family, SOCK_STREAM, IPPROTO_SCTP);
+	
 	if(connection == -1)
 	{
 		 err_msg = "unable to create socket";
 		 goto finally;
 	}
 
-	conn = connect(connection, (struct sockaddr *) &addr, sizeof(addr));
+	conn = connect(connection, (struct sockaddr*)(&options->managementAddress), sizeof(options->managementAddress));
 	if(conn == -1)
 	{
 		err_msg = "unable to connect";
