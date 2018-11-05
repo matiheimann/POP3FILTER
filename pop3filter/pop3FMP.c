@@ -24,7 +24,6 @@ uint8_t* receivePOP3FMPRequest(buffer* b, int* size)
 	int state = START;
 	
 	uint8_t firstByte = buffer_read(b);
-	buffer_read_adv(b, 1);
 
 	/** Version check */
 
@@ -43,7 +42,6 @@ uint8_t* receivePOP3FMPRequest(buffer* b, int* size)
 			response[1] = 0x1; //SUPPORTED VERSION
 			transitions(firstByte, &state, response, size, str, &strIndex);
 		}
-		buffer_read_adv(b, 1);
 	}
 	else
 	{
@@ -56,7 +54,6 @@ uint8_t* receivePOP3FMPRequest(buffer* b, int* size)
 	{
 
 		transitions(buffer_read(b), &state, response, size, str, &strIndex);
-		buffer_read_adv(b, 1);
 		if(((state == END  || 
 			state == CLOSE_CONNECTION || 
 			END_SET_MEDIATYPES || 

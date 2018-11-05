@@ -14,7 +14,6 @@ int receivePOP3FMPResponse(buffer *b)
 	while(buffer_can_read(b))
 	{
 		transitions(buffer_read(b), &state, str, &stringIndex);
-		buffer_read_adv(b, 1);
 		if((state == END && buffer_can_read(b)) || state == ERROR)
 		{
 			consumeBuffer(b);

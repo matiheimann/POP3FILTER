@@ -23,7 +23,7 @@ void setConfiguration(int argc, char* const argv[])
 
 	char c;
 
-	while((c = getopt(argc, argv, "L:o")) != -1)
+	while((c = getopt(argc, argv, "L:o:")) != -1)
 	{
 		switch(c)
 		{
@@ -41,8 +41,6 @@ void setConfiguration(int argc, char* const argv[])
 				break;
 		}
 	}
-	if (argv[optind] == NULL) 
-  		printHelp();
 }
 
 int isANumericArgument(char* value, char param)
