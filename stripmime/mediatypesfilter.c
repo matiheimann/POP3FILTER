@@ -7,7 +7,11 @@
 
 #include "mediatypesfilter.h"
 #include "contenttypevalidator.h"
+#include "boundaryvalidator.h"
 
+int censored = 0;
+int multipart = 0;
+int message = 0;
 
 void filteremail(char* censoredMediaTypes, char* filterMessage)
 {
@@ -22,7 +26,6 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 		{
 			switch(peekInt(context->actions))
 			{
-
 				/*Empieza una nueva linea, se verifica si hay line folding y si hace falta revisar headers
 				relevantes.*/
 
@@ -33,29 +36,10 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					{
 						/*No quedan headers relevantes*/
 						if(!context->contenttypedeclared ||
-						 (!context->encondingdeclared && context->censored) ||
+						 (!context->encondingdeclared && censored) ||
 						 !context->contentlengthdeclared ||
 						 !context->contententmd5declared)
 						{
-							if(peekInt(context->actions) == CHECKING_CONTENT_TYPE)
-							{
-								context->contenttypedeclared = 1;
-								checkmediatypes(context->ctp, ' ');
-								if(context->ctp->matchfound)
-								{
-									write(STDOUT_FILENO, "text/plain\r\n", strlen("text/plain\r\n"));
-								}
-								else
-								{
-									write(STDOUT_FILENO, 
-										context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
-										context->ctp->index);
-									write(STDOUT_FILENO, "\r\n", 2);
-									
-								}
-								context->ctp = NULL;
-								popInt(context->actions);
-							}
 							i--;
 							pushInt(context->actions, CHECKING_HEADER);
 						}
@@ -66,33 +50,12 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					}
 					else if(isspace(buffer[i]) && buffer[i] != '\r')
 					{
-						if(peekInt(context->actions) == CHECKING_CONTENT_TYPE)
-						{
-
-						}
-						write(STDOUT_FILENO, buffer + i, 1);
+						/*Solo se popea ya que corresponde a line folding, por lo tanto,
+						se vuelve a la accion anterior.*/
+						;
 					}
 					else if(buffer[i] == '\r')
 					{
-						if(peekInt(context->actions) == CHECKING_CONTENT_TYPE)
-						{
-							context->contenttypedeclared = 1;
-							checkmediatypes(context->ctp, ' ');
-							if(context->ctp->matchfound)
-							{
-								write(STDOUT_FILENO, "text/plain\r\n", strlen("text/plain\r\n"));
-							}
-							else
-							{
-								write(STDOUT_FILENO, 
-									context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
-									context->ctp->index);
-								write(STDOUT_FILENO, "\r\n", 2);
-								
-							}
-							context->ctp = NULL;
-							popInt(context->actions);
-						}
 						pushInt(context->actions, CARRY_RETURN_END_OF_HEADERS);
 					}
 					break;
@@ -110,33 +73,54 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						context->ctp = malloc(sizeof(contentypevalidator));
 						context->ctp = initcontenttypevalidator(censoredMediaTypes);
 					}
+
+					checkmediatypes(context->ctp, buffer[i]);
+
+					if(context->ctp->matchfound == NORMAL_MATCH)
+					{
+						write(STDOUT_FILENO, "text/plain;\r\n", strlen("text/plain;\r\n"));
+						context->contenttypedeclared = 1;
+						censored = 1;
+						popInt(context->actions);
+						pushInt(context->actions, IGNORE_UNTIL_NEW_LINE);
+						break;
+					}
+					else if(!context->ctp->stillValidCensored)
+					{
+						if(context->ctp->matchfound == MULTIPART_MATCH)
+						{
+							multipart = 1;
+							context->contenttypedeclared = 1;
+							popInt(context->actions);
+							pushInt(context->actions, CHECKING_BOUNDARY);
+							write(STDOUT_FILENO, "multipart/", strlen("multipart/"));
+							break;
+						}
+						else if(context->ctp->matchfound == MESSAGE_MATCH)
+						{
+							message = 1;
+							context->contenttypedeclared = 1;
+							popInt(context->actions);
+							pushInt(context->actions, WAIT_FOR_NEW_LINE);
+							write(STDOUT_FILENO, "message/", strlen("message/"));
+							break;
+						}
+						else if(!context->ctp->stillValidExtras)
+						{
+							context->contenttypedeclared = 1;
+							popInt(context->actions);
+							pushInt(context->actions, WAIT_FOR_NEW_LINE);
+							write(STDOUT_FILENO, 
+								context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
+								context->ctp->index);
+							write(STDOUT_FILENO, buffer + i, 1);
+						}
+					}
 					if(buffer[i] == '\r')
 					{
 						pushInt(context->actions, IGNORE_CARRY_RETURN);
 						break;
-					}
-
-					checkmediatypes(context->ctp, buffer[i]);
-
-					if(context->ctp->matchfound == 1)
-					{
-						popInt(context->actions);
-						pushInt(context->actions,IGNORE_UNTIL_NEW_LINE);
-						write(STDOUT_FILENO, "text/plain;\r\n", strlen("text/plain;\r\n"));
-						context->censored = 1;
-						context->contenttypedeclared = 1;
-						break;
-					}
-					else if(!context->ctp->stillValid)
-					{
-						context->contenttypedeclared = 1;
-						popInt(context->actions);
-						pushInt(context->actions, WAIT_FOR_NEW_LINE);
-						write(STDOUT_FILENO, 
-							context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
-							context->ctp->index);
-						write(STDOUT_FILENO, buffer + i, 1);
-					}
+					}					
 					break;
 
 				/*Se verifica si hay un header relevante, es decir, Content-Transfer-Enconding o 
@@ -161,7 +145,7 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						{
 							if(context->contenttypedeclared)
 							{
-								if(context->censored)
+								if(censored)
 								{
 									write(STDOUT_FILENO, "Content-Type-Enconding: 8-bit\r\n", 
 										strlen("Content-Type-Enconding: 8-bit\r\n"));
@@ -212,6 +196,9 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					{
 						context->bv = initboundaryvalidator();
 					}
+
+					checkboundary(context->bv, buffer[i]);
+
 					if(context->bv->end)
 					{
 						pushString(context->boundaries, context->bv->boundary);
@@ -224,6 +211,7 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						write(STDOUT_FILENO, "boundary", context->bv->index);
 						write(STDOUT_FILENO, buffer + i, 1);
 						context->bv = NULL;
+						pushInt(context->actions, WAIT_FOR_DOT_COMMA);
 
 					}
 					break;
@@ -244,6 +232,30 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					}
 					break;
 
+				case WAIT_FOR_DOT_COMMA:
+					if(context->extra == NULL)
+					{
+						context->extra = initextrainformation(5);
+					}
+					addchar(context->extra, buffer[i]);
+					if(buffer[i] == '\r')
+					{
+						pushInt(context->actions, CARRY_RETURN);
+						endextrainformation(context->extra);
+						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
+						context->extra = NULL;
+
+					}
+					else if(buffer[i] == ';')
+					{
+						popInt(context->actions);
+						endextrainformation(context->extra);
+						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
+						context->extra = NULL;						
+					}
+
+					break;
+
 				case IGNORE_UNTIL_NEW_LINE:
 					if(buffer[i] == '\r')
 					{
@@ -261,9 +273,10 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 				case CARRY_RETURN_END_OF_HEADERS:
 					write(STDOUT_FILENO, "\n", 1);
 					popInt(context->actions);
-					if(context->censored)
+					if(censored)
 					{
 						write(STDOUT_FILENO, filterMessage, strlen(filterMessage));
+						write(STDOUT_FILENO, "\r\n", 2);
 						if(peekString(context->boundaries) != NULL)
 						{
 							pushInt(context->actions, IGNORE_UNTIL_BOUNDARY);
@@ -275,14 +288,14 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					}
 					else
 					{
-						if(context->multipart)
+						if(multipart)
 						{
 							write(STDOUT_FILENO, "--", 2);
 							char* aux = peekString(context->boundaries);
 							write(STDOUT_FILENO, aux, strlen(aux));
 							pushInt(context->actions, IGNORE_BOUNDARY);
 						}
-						else if(context->message)
+						else if(message)
 						{
 							pushInt(context->actions, CHECKING_HEADER);
 						}
@@ -299,92 +312,117 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					{
 						popInt(context->actions);
 						pushInt(context->actions, CHECKING_HEADER);
-
+						restartcontext(context);
 						write(STDOUT_FILENO, "\r\n", 2);
 					}
 					break;
 
 				case WAIT_UNTIL_BOUNDARY:
 
-					write(STDOUT_FILENO, buffer + i, 1);
-
 					if(context->bc == NULL)
 					{
+						restartcontext(context);
 						char* aux = peekString(context->boundaries);
 						context->bc = malloc(sizeof(boundarycomparator));
 						context->bc = initboundarycomparator(aux);
-						restartcontext(context);
+						context->extra = initextrainformation(5);
 					}
 
+					compareboundaries(context->bc, buffer[i]);
+					addchar(context->extra, buffer[i]);
 					if(buffer[i] == '\r')
 					{
 						if(context->bc->match)
 						{
-							restartcontext(context);
-							context->bc = NULL;
+							write(STDOUT_FILENO, "--", 2);
+							write(STDOUT_FILENO, context->bc->boundary, context->bc->boundarylength);
+							popInt(context->actions);
 							if(context->bc->endingboundary)
 							{
-								write(STDOUT_FILENO, "--", 2);
+								write(STDOUT_FILENO, "--\r\n", 4);
 								popString(context->boundaries);
 							}
-							write(STDOUT_FILENO, "\r\n", 2);
-							popInt(context->actions);
-							pushInt(context->actions, CARRY_RETURN_BODY);
+							else
+							{
+								write(STDOUT_FILENO, "\r\n", 2);
+								pushInt(context->actions, CHECKING_HEADER);
+							}
+							pushInt(context->actions, IGNORE_CARRY_RETURN_BODY);
+							restartcontext(context);
+							break;
 						}
 					}
 
-					compareboundaries(context->bc, buffer[i]);
-
 					if(!context->bc->stillvalid)
 					{
+						endextrainformation(context->extra);
+						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
 						pushInt(context->actions, WAIT_UNTIL_NEW_LINE_BODY);
-						context->bc = NULL;
+						restartcontext(context);
 					}
 
 					break;
 
 				case WAIT_UNTIL_NEW_LINE_BODY:
+					if(context->extra == NULL)
+					{
+						context->extra = initextrainformation(5);
+					}
+
+					addchar(context->extra, buffer[i]);
+
 					if(buffer[i] == '\n')
 					{
+						endextrainformation(context->extra);
+						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
 						popInt(context->actions);
 					}
-					write(STDOUT_FILENO, buffer + i, 1);
+					break;
+					
 
 				case IGNORE_UNTIL_BOUNDARY:
-					
 					if(context->bc == NULL)
 					{
+						restartcontext(context);
 						char* aux = peekString(context->boundaries);
 						context->bc = malloc(sizeof(boundarycomparator));
 						context->bc = initboundarycomparator(aux);
-						restartcontext(context);
 					}
 
+					compareboundaries(context->bc, buffer[i]);
 					if(buffer[i] == '\r')
 					{
 						if(context->bc->match)
 						{
-							restartcontext(context);
-							context->bc = NULL;
 							write(STDOUT_FILENO, "--", 2);
 							write(STDOUT_FILENO, context->bc->boundary, context->bc->boundarylength);
+							popInt(context->actions);
 							if(context->bc->endingboundary)
 							{
-								write(STDOUT_FILENO, "--", 2);
+								write(STDOUT_FILENO, "--\r\n", 4);
 								popString(context->boundaries);
 							}
-							write(STDOUT_FILENO, "\r\n", 2);
-							popInt(context->actions);
-							pushInt(context->actions, CARRY_RETURN_BODY);
+							else
+							{
+								write(STDOUT_FILENO, "\r\n", 2);
+								pushInt(context->actions, CHECKING_HEADER);
+							}
+							pushInt(context->actions, IGNORE_CARRY_RETURN_BODY);
+							restartcontext(context);
+							break;
+						}
+						else
+						{
+							pushInt(context->actions, IGNORE_CARRY_RETURN_BODY);
+							restartcontext(context);
+							break;
 						}
 					}
-
-					compareboundaries(context->bc, buffer[i]);
 
 					if(!context->bc->stillvalid)
 					{
 						pushInt(context->actions, IGNORE_UNTIL_NEW_LINE_BODY);
-						context->bc = NULL;
+						restartcontext(context);
 					}
 
 					break;
@@ -422,7 +460,6 @@ ctx* initcontext(char* censoredMediaTypes)
 	context->boundaries = malloc(sizeof(stackstring));
 	context->boundaries = initStringStack();
 	context->contenttypedeclared = 0;
-	context->censored = 0;
 	context->ctp = NULL;
 	context->hv = NULL;
 	context->bv = NULL;
@@ -441,7 +478,9 @@ void destroycontext(ctx* context)
 
 void restartcontext(ctx* context)
 {
-	context->censored = 0;
+	multipart = 0;
+	censored = 0;
+	message = 0;
 	context->bc = NULL;
 	context->ctp = NULL;
 	context->hv = NULL;
@@ -450,6 +489,4 @@ void restartcontext(ctx* context)
 	context->encondingdeclared = 0;
 	context->contentlengthdeclared = 0;
 	context->contententmd5declared = 0;
-	context->multipart = 0;
-	context->message = 0;
 }

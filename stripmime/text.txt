@@ -1,8 +1,0 @@
-Content-Type:text/plain
-Header1: sdd
-Header2: asdasdas
-Header3: dasdsasad
-
-hola como estas jaajaja
-
-

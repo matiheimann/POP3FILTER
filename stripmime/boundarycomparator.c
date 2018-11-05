@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "boundarycomparator.h"
 
@@ -16,6 +17,15 @@ boundarycomparator* initboundarycomparator(char* boundary)
 }
 int compareboundaries(boundarycomparator* bc, char c)
 {
+	if(c == '\r')
+	{
+		if(!bc->match)
+		{
+			bc->stillvalid = 0;
+		}
+		return 0;
+	}
+
 	if(bc->index < 0)
 	{
 		if(c != '-')
@@ -29,7 +39,7 @@ int compareboundaries(boundarycomparator* bc, char c)
 		return 1;
 	}
 
-	if(bc->boundarylength >= bc->index)
+	else if(bc->boundarylength <= bc->index)
 	{
 		bc->match = 0;
 		if(bc->index >= bc->boundarylength + 2)
@@ -46,7 +56,7 @@ int compareboundaries(boundarycomparator* bc, char c)
 		}
 		else if(bc->index == bc->boundarylength + 1)
 		{
-			bc->match = 0;
+			bc->match = 1;
 			bc->endingboundary = 1;
 		}
 	}
@@ -57,12 +67,11 @@ int compareboundaries(boundarycomparator* bc, char c)
 			bc->stillvalid = 0;
 			return 0;
 		}
-		else if(bc->boundarylength == bc->index - 1)
+		if(bc->boundarylength - 1 == bc->index)
 		{
 			bc->match = 1;
-		} 
+		}
 	}
-
 	(bc->index)++;
 
 	return 1;
