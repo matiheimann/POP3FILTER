@@ -152,6 +152,7 @@ management_write(struct selector_key *key) {
     if(SELECTOR_SUCCESS != selector_set_interest_key(key, OP_READ)) {
        selector_unregister_fd(key->s, data->client_fd);
     }
+
 }
 
 static void
