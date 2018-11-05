@@ -7,11 +7,8 @@
 int main(int argc, char  *argv[])
 {
 	
-	//char* filterMessage = getenv("FILTER_MSG");
-	//char* censoredMediaTypes = getenv("FILTER_MEDIAS");
-
-	char* filterMessage = argv[1];
-	char* censoredMediaTypes = argv[2];
+	char* filterMessage = getenv("FILTER_MSG");
+	char* censoredMediaTypes = getenv("FILTER_MEDIAS");
 
 	if(filterMessage == NULL)
 	{
