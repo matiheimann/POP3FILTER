@@ -245,6 +245,10 @@ void filteremail(char* censoredMediaTypes, char* fm)
 									context->encondingdeclared = 1;
 								}
 							}
+							else
+							{
+								
+							}
 						}
 						else
 						{
