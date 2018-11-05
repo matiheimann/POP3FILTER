@@ -13,8 +13,9 @@ int censored = 0;
 int multipart = 0;
 int message = 0;
 
-void filteremail(char* censoredMediaTypes, char* filterMessage)
+void filteremail(char* censoredMediaTypes, char* fm)
 {
+	char* filterMessage = bytestuffmessage(fm);
 	ctx* context = initcontext();
 	pushInt(context->actions, NEW_LINE);
 	int n = 0;
@@ -40,6 +41,12 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						 !context->contentlengthdeclared ||
 						 !context->contententmd5declared)
 						{
+							if(peekInt(context->actions) == CHECKING_TRANSFER_ENCODING)
+							{
+								endextrainformation(context->extra);
+								context->encondingselected = context->extra->buff;
+								context->extra = NULL;
+							}
 							i--;
 							pushInt(context->actions, CHECKING_HEADER);
 						}
@@ -56,6 +63,12 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					}
 					else if(buffer[i] == '\r')
 					{
+						if(peekInt(context->actions) == CHECKING_TRANSFER_ENCODING)
+						{
+							endextrainformation(context->extra);
+							context->encondingselected = context->extra->buff;
+							context->extra = NULL;
+						}
 						pushInt(context->actions, CARRY_RETURN_END_OF_HEADERS);
 					}
 					break;
@@ -109,7 +122,14 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						{
 							context->contenttypedeclared = 1;
 							popInt(context->actions);
-							pushInt(context->actions, WAIT_FOR_NEW_LINE);
+							if(!context->encondingdeclared)
+							{
+								pushInt(context->actions, WAIT_FOR_NEW_LINE);
+							}
+							else
+							{
+								pushInt(context->actions, PRINT_TRANSFER_ENCODING);
+							}
 							write(STDOUT_FILENO, 
 								context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
 								context->ctp->index);
@@ -122,6 +142,26 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						break;
 					}					
 					break;
+
+				case PRINT_TRANSFER_ENCODING:
+					if(context->extra == NULL)
+					{
+						context->extra = initextrainformation(5);
+					}
+					addchar(context->extra, buffer[i]);
+					if(buffer[i] == '\r')
+					{
+						endextrainformation(context->extra);
+						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
+						write(STDOUT_FILENO, "Content-Transfer-Enconding", strlen("Content-Transfer-Enconding"));
+						write(STDOUT_FILENO, context->encondingselected, strlen(context->encondingselected));
+						context->extra = NULL;
+						popInt(context->actions);
+						pushInt(context->actions, CARRY_RETURN); 
+					}
+					break;
+
+
 
 				/*Se verifica si hay un header relevante, es decir, Content-Transfer-Enconding o 
 				Content-Type, en caso de ser Content-Type se manda a revisar el contenido, y en caso de 
@@ -155,7 +195,9 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 								}
 								else
 								{
-									/*Qué hacer cuando no se sabe si esta censurado.*/
+									popInt(context->actions);
+									pushInt(context->actions, CHECKING_TRANSFER_ENCODING);
+									context->encondingdeclared = 1;
 								}
 							}
 							/*Ignora Content-Length y Content-MD5SUM, estos headers no son recomendados*/
@@ -234,6 +276,19 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						context->extra = NULL;
 						popInt(context->actions);
 						pushInt(context->actions, CARRY_RETURN); 
+					}
+					break;
+
+				case CHECKING_TRANSFER_ENCODING:
+					if(context->extra == NULL)
+					{
+						context->extra = initextrainformation(5);
+					}
+					addchar(context->extra, buffer[i]);
+					if(buffer[i] == '\r')
+					{
+						pushInt(context->actions, IGNORE_CARRY_RETURN);
+						addchar(context->extra, '\n');
 					}
 					break;
 
@@ -511,4 +566,43 @@ void restartcontext(ctx* context)
 	context->encondingdeclared = 0;
 	context->contentlengthdeclared = 0;
 	context->contententmd5declared = 0;
+}
+
+char* bytestuffmessage(char* fm)
+{
+	int i,j;
+	i = j = 0;
+	while(fm[i] != 0)
+	{
+		if(fm[i] == ' ')
+		{
+			j++;
+		}
+		i++;
+	}
+	/*Tamaño maximo que puede tener la palabra, en el caso que todas las nuevas lineas
+	empiecen con .*/
+	char* ret = malloc((i + j + 1) * sizeof(char));
+	i = 0;
+	j = 0;
+	while(fm[i] != 0)
+	{
+		ret[j] = fm[i];
+		if(fm[i] == '\n')
+		{
+			i++;
+			j++;
+			if (fm[i] == '.')
+			{
+				ret[j] = '.';
+				j++;
+			}
+			ret[j] = fm[i]; 
+		}
+		i++;
+		j++;
+	}
+
+	return (char*)realloc(ret, (j+1)*sizeof(char));
+
 }

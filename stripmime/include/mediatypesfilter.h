@@ -34,7 +34,8 @@ typedef enum states
 	IGNORE_CARRY_RETURN_HEADERS,	//20
 	IGNORE_CARRY_RETURN_BODY,		//21
 	IGNORE_UNTIL_END,				//22
-	GET_NEXT_BOUNDARY 				//23
+	GET_NEXT_BOUNDARY, 				//23
+	PRINT_TRANSFER_ENCODING
 
 }states;
 
@@ -81,5 +82,6 @@ void filteremail(char* cesoredMediaTypes, char* filterMessage);
 ctx* initcontext();
 void destroycontext(ctx* context);
 void restartcontext(ctx* context);
+char* bytestuffmessage(char* fm);
 
 #endif
