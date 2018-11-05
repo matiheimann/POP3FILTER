@@ -15,10 +15,9 @@
 #include "mediatypes.h"
 #include "options.h"
 
-uint8_t* receivePOP3FMPRequest(buffer* b, int* size)
+uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size)
 {
 	char* str = (char*) calloc(MAX_RESPONSE, sizeof(char));
-	uint8_t* response = (uint8_t*) calloc(MAX_RESPONSE, sizeof(uint8_t));
 	int strIndex = 0;
 	
 	int state = START;

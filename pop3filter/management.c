@@ -138,11 +138,11 @@ static void
 management_write(struct selector_key *key) {
 	struct management * data = ATTACHMENT(key);
 
-    uint8_t *response;
+    uint8_t *response = (uint8_t*) calloc(MAX_RESPONSE, sizeof(uint8_t));
     int size;
     ssize_t  n;
 
-    response = receivePOP3FMPRequest(&data->read_buffer, &size);
+    response = receivePOP3FMPRequest(&data->read_buffer, response, &size);
     n = sctp_sendmsg(key->fd, response, size, NULL, 0, 0, 0, 0, 0, 0);
     if(n == 0)
     {
@@ -151,6 +151,7 @@ management_write(struct selector_key *key) {
     if(SELECTOR_SUCCESS != selector_set_interest_key(key, OP_READ)) {
        selector_unregister_fd(key->s, data->client_fd);
     }
+
 }
 
 static void

@@ -166,15 +166,15 @@ int checkValidMediaTypes(char * str)
 void helpMessage()
 {
 	printf("These are the available commands:\n");
-	printf("1 - 'concurrent connections'\n");
-	printf("2 - 'historical accesses'\n");
-	printf("3 - 'transfered bytes'\n");
-	printf("4 - 'filtered mails'\n");
-	printf("5 - 'get mediatypes'\n");
-	printf("6 - 'get replacement message'\n");
-	printf("7 - 'get filter command'\n");
-	printf("8 - 'set mediatypes <mediatype1,mediatype2,...,mediatypesN>'\n");
-	printf("9 - 'set replacement message <message>'\n");
+	printf(" 1 - 'concurrent connections'\n");
+	printf(" 2 - 'historical accesses'\n");
+	printf(" 3 - 'transfered bytes'\n");
+	printf(" 4 - 'filtered mails'\n");
+	printf(" 5 - 'get mediatypes'\n");
+	printf(" 6 - 'get replacement message'\n");
+	printf(" 7 - 'get filter command'\n");
+	printf(" 8 - 'set mediatypes <mediatype1,mediatype2,...,mediatypesN>'\n");
+	printf(" 9 - 'set replacement message <message>'\n");
 	printf("10 - 'set filter command  <command>'\n");
 	printf("11 - 'user <username>'\n");
 	printf("12 - 'password <password>'\n");
