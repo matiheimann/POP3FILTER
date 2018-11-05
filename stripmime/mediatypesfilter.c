@@ -32,7 +32,6 @@ void filteremail(char* censoredMediaTypes, char* fm)
 
 				case NEW_LINE:
 					popInt(context->actions);
-
 					if(!isspace(buffer[i]))
 					{
 						/*No quedan headers relevantes*/
@@ -59,7 +58,10 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					{
 						/*Solo se popea ya que corresponde a line folding, por lo tanto,
 						se vuelve a la accion anterior.*/
-						;
+						if(peekInt(context->actions) == -1)
+						{
+							pushInt(context->actions, WAIT_FOR_NEW_LINE);
+						}
 					}
 					else if(buffer[i] == '\r')
 					{
@@ -200,22 +202,18 @@ void filteremail(char* censoredMediaTypes, char* fm)
 									context->encondingdeclared = 1;
 								}
 							}
-							/*Ignora Content-Length y Content-MD5SUM, estos headers no son recomendados*/
-							else
-							{
-								if(context->hv->matchfound == CONTENT_LENGTH)
-								{
-									context->contentlengthdeclared = 1;
-								}
-								else
-								{
-									context->contententmd5declared = 1;
-								}
-								pushInt(context->actions, IGNORE_UNTIL_NEW_LINE);
-							}
 						}
 						else
 						{
+							/*Ignora Content-Length y Content-MD5SUM, estos headers no son recomendados*/
+							if(context->hv->matchfound == CONTENT_LENGTH)
+							{
+								context->contentlengthdeclared = 1;
+							}
+							else
+							{
+								context->contententmd5declared = 1;
+							}
 							pushInt(context->actions, IGNORE_UNTIL_NEW_LINE);
 						}
 						destroyheadervalidator(context->hv);
@@ -227,6 +225,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 							context->hv->index);
 						write(STDOUT_FILENO, buffer + i, 1);
 						context->hv = NULL;
+						context->extra = NULL;
 						popInt(context->actions);
 						pushInt(context->actions, WAIT_FOR_NEW_LINE);
 					}
@@ -585,6 +584,13 @@ char* bytestuffmessage(char* fm)
 	char* ret = malloc((i + j + 1) * sizeof(char));
 	i = 0;
 	j = 0;
+	if(fm[0] == '.')
+	{
+		ret[0] = '.';
+		ret[1] = '.';
+		i=1;
+		j=2;
+	}
 	while(fm[i] != 0)
 	{
 		ret[j] = fm[i];
