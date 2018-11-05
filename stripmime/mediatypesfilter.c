@@ -40,6 +40,12 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						 !context->contentlengthdeclared ||
 						 !context->contententmd5declared)
 						{
+							if(peekInt(context->actions) == CHECKING_TRANSFER_ENCODING)
+							{
+								endextrainformation(context->extra);
+								context->encondingselected = context->extra->buff;
+								context->extra = NULL;
+							}
 							i--;
 							pushInt(context->actions, CHECKING_HEADER);
 						}
@@ -56,6 +62,12 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 					}
 					else if(buffer[i] == '\r')
 					{
+						if(peekInt(context->actions) == CHECKING_TRANSFER_ENCODING)
+						{
+							endextrainformation(context->extra);
+							context->encondingselected = context->extra->buff;
+							context->extra = NULL;
+						}
 						pushInt(context->actions, CARRY_RETURN_END_OF_HEADERS);
 					}
 					break;
@@ -109,7 +121,14 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						{
 							context->contenttypedeclared = 1;
 							popInt(context->actions);
-							pushInt(context->actions, WAIT_FOR_NEW_LINE);
+							if(!context->encondingdeclared)
+							{
+								pushInt(context->actions, WAIT_FOR_NEW_LINE);
+							}
+							else
+							{
+								pushInt(context->actions, PRINT_TRANSFER_ENCODING);
+							}
 							write(STDOUT_FILENO, 
 								context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
 								context->ctp->index);
@@ -122,6 +141,26 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						break;
 					}					
 					break;
+
+				case PRINT_TRANSFER_ENCODING:
+					if(context->extra == NULL)
+					{
+						context->extra = initextrainformation(5);
+					}
+					addchar(context->extra, buffer[i]);
+					if(buffer[i] == '\r')
+					{
+						endextrainformation(context->extra);
+						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
+						write(STDOUT_FILENO, "Content-Transfer-Enconding", strlen("Content-Transfer-Enconding"));
+						write(STDOUT_FILENO, context->encondingselected, strlen(context->encondingselected));
+						context->extra = NULL;
+						popInt(context->actions);
+						pushInt(context->actions, CARRY_RETURN); 
+					}
+					break;
+
+
 
 				/*Se verifica si hay un header relevante, es decir, Content-Transfer-Enconding o 
 				Content-Type, en caso de ser Content-Type se manda a revisar el contenido, y en caso de 
@@ -155,7 +194,9 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 								}
 								else
 								{
-									/*Qué hacer cuando no se sabe si esta censurado.*/
+									popInt(context->actions);
+									pushInt(context->actions, CHECKING_TRANSFER_ENCODING);
+									context->encondingdeclared = 1;
 								}
 							}
 							/*Ignora Content-Length y Content-MD5SUM, estos headers no son recomendados*/
@@ -234,6 +275,19 @@ void filteremail(char* censoredMediaTypes, char* filterMessage)
 						context->extra = NULL;
 						popInt(context->actions);
 						pushInt(context->actions, CARRY_RETURN); 
+					}
+					break;
+
+				case CHECKING_TRANSFER_ENCODING:
+					if(context->extra == NULL)
+					{
+						context->extra = initextrainformation(5);
+					}
+					addchar(context->extra, buffer[i]);
+					if(buffer[i] == '\r')
+					{
+						pushInt(context->actions, IGNORE_CARRY_RETURN);
+						addchar(context->extra, '\n');
 					}
 					break;
 
