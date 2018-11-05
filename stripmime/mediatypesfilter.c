@@ -239,8 +239,9 @@ void filteremail(char* censoredMediaTypes, char* fm)
 								}
 								else
 								{
+									write(STDOUT_FILENO, "Content-Type-Enconding:", strlen("Content-Type-Enconding:"));
 									popInt(context->actions);
-									pushInt(context->actions, CHECKING_TRANSFER_ENCODING);
+									pushInt(context->actions, WAIT_FOR_NEW_LINE);
 									context->encondingdeclared = 1;
 								}
 							}
