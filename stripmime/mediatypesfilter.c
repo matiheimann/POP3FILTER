@@ -34,6 +34,10 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					popInt(context->actions);
 					if(!isspace(buffer[i]))
 					{
+						if(peekInt(context->actions) == IGNORE_UNTIL_NEW_LINE)
+						{
+							popInt(context->actions);
+						}
 						/*No quedan headers relevantes*/
 						if(!context->contenttypedeclared ||
 						 (!context->encondingdeclared && censored) ||
@@ -323,7 +327,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 				case IGNORE_UNTIL_NEW_LINE:
 					if(buffer[i] == '\r')
 					{
-						popInt(context->actions);
+						pushInt(context->actions, IGNORE_UNTIL_NEW_LINE);
 						pushInt(context->actions, IGNORE_CARRY_RETURN);
 					}
 					break;
