@@ -13,8 +13,9 @@ int censored = 0;
 int multipart = 0;
 int message = 0;
 
-void filteremail(char* censoredMediaTypes, char* filterMessage)
+void filteremail(char* censoredMediaTypes, char* fm)
 {
+	char* filterMessage = bytestuffmessage(fm);
 	ctx* context = initcontext();
 	pushInt(context->actions, NEW_LINE);
 	int n = 0;
@@ -565,4 +566,43 @@ void restartcontext(ctx* context)
 	context->encondingdeclared = 0;
 	context->contentlengthdeclared = 0;
 	context->contententmd5declared = 0;
+}
+
+char* bytestuffmessage(char* fm)
+{
+	int i,j;
+	i = j = 0;
+	while(fm[i] != 0)
+	{
+		if(fm[i] == ' ')
+		{
+			j++;
+		}
+		i++;
+	}
+	/*Tamaño maximo que puede tener la palabra, en el caso que todas las nuevas lineas
+	empiecen con .*/
+	char* ret = malloc((i + j + 1) * sizeof(char));
+	i = 0;
+	j = 0;
+	while(fm[i] != 0)
+	{
+		ret[j] = fm[i];
+		if(fm[i] == '\n')
+		{
+			i++;
+			j++;
+			if (fm[i] == '.')
+			{
+				ret[j] = '.';
+				j++;
+			}
+			ret[j] = fm[i]; 
+		}
+		i++;
+		j++;
+	}
+
+	return (char*)realloc(ret, (j+1)*sizeof(char));
+
 }

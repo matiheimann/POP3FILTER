@@ -82,5 +82,6 @@ void filteremail(char* cesoredMediaTypes, char* filterMessage);
 ctx* initcontext();
 void destroycontext(ctx* context);
 void restartcontext(ctx* context);
+char* bytestuffmessage(char* fm);
 
 #endif
