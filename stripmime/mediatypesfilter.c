@@ -32,11 +32,40 @@ void filteremail(char* censoredMediaTypes, char* fm)
 
 				case NEW_LINE:
 					popInt(context->actions);
+					/*No hay line folding, es un nuevo header*/
 					if(!isspace(buffer[i]))
 					{
+						/*Es nueva linea, entonces, se debe analizar de nuevo.*/
 						if(peekInt(context->actions) == IGNORE_UNTIL_NEW_LINE)
 						{
 							popInt(context->actions);
+						}
+						/*Analizo el content-type*/
+						else if(peekInt(context->actions) == CHECKING_CONTENT_TYPE)
+						{
+							popInt(context->actions);
+							checkmediatypes(context->ctp, '\r');
+							if(context->ctp->matchfound == NORMAL_MATCH)
+							{
+								write(STDOUT_FILENO, "text/plain;\r\n", strlen("text/plain;\r\n"));
+								context->contenttypedeclared = 1;
+								censored = 1;
+								
+							}
+							else
+							{
+								write(STDOUT_FILENO, 
+									context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
+									context->ctp->index);
+								write(STDOUT_FILENO, "\r\n", 2);
+								context->contenttypedeclared = 1;
+								if(context->encondingdeclared)
+								{
+									write(STDOUT_FILENO, context->encondingselected, 
+										strlen(context->encondingselected));
+									write(STDOUT_FILENO, "\r\n", 2);
+								}
+							}
 						}
 						/*No quedan headers relevantes*/
 						if(!context->contenttypedeclared ||
@@ -59,6 +88,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 							write(STDOUT_FILENO, buffer + i, 1);
 						}
 					}
+					/*Hay line folding, no hay nueva linea*/
 					else if(isspace(buffer[i]) && buffer[i] != '\r')
 					{
 						/*Solo se popea ya que corresponde a line folding, por lo tanto,
@@ -97,6 +127,12 @@ void filteremail(char* censoredMediaTypes, char* fm)
 						context->ctp = malloc(sizeof(contentypevalidator));
 						context->ctp = initcontenttypevalidator(censoredMediaTypes);
 					}
+
+					if(buffer[i] == '\r')
+					{
+						pushInt(context->actions, IGNORE_CARRY_RETURN);
+						break;
+					}	
 
 					checkmediatypes(context->ctp, buffer[i]);
 
@@ -146,12 +182,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 								context->ctp->index);
 							write(STDOUT_FILENO, buffer + i, 1);
 						}
-					}
-					if(buffer[i] == '\r')
-					{
-						pushInt(context->actions, IGNORE_CARRY_RETURN);
-						break;
-					}					
+					}				
 					break;
 
 				case PRINT_TRANSFER_ENCODING:
@@ -162,13 +193,15 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					addchar(context->extra, buffer[i]);
 					if(buffer[i] == '\r')
 					{
+						addchar(context->extra, '\n');
 						endextrainformation(context->extra);
 						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
-						write(STDOUT_FILENO, "Content-Transfer-Enconding", strlen("Content-Transfer-Enconding"));
+						write(STDOUT_FILENO, "Content-Transfer-Enconding: ", strlen("Content-Transfer-Enconding: "));
 						write(STDOUT_FILENO, context->encondingselected, strlen(context->encondingselected));
+						write(STDOUT_FILENO, "\r\n", 2);
 						context->extra = NULL;
 						popInt(context->actions);
-						pushInt(context->actions, CARRY_RETURN); 
+						pushInt(context->actions, IGNORE_CARRY_RETURN); 
 					}
 					break;
 
