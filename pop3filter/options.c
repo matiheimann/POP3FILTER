@@ -13,6 +13,7 @@
 #include <ctype.h>
 
 #include "options.h"
+#include "metrics.h"
 #include "iputils.h"
 #include "mediatypes.h"
 

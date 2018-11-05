@@ -12,6 +12,7 @@
 
 #include "selector.h"
 #include "options.h"
+#include "metrics.h"
 #include "pop3filter.h"
 #include "management.h"
 
@@ -25,7 +26,8 @@ sigterm_handler(const int signal) {
 
 int main(int argc, char* const argv[])
 {
-	setConfiguration(argc, argv);	
+	setConfiguration(argc, argv);
+    setMetrics();	
 
 	// no tenemos nada que leer de stdin
     close(0);

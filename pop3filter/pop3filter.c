@@ -17,6 +17,7 @@
 #include "buffer.h"
 #include "pop3_multi.h"
 #include "options.h"
+#include "metrics.h"
 #include "iputils.h"
 #include "timeutils.h"
 #include "logging_lib.h"
@@ -260,6 +261,9 @@ pop3filter_new(int client_fd) {
     buffer_init(&ret->aux_request_buffer,  N(ret->raw_buff_d), ret->raw_buff_d);
     buffer_init(&ret->cmd_request_buffer,  N(ret->raw_buff_e), ret->raw_buff_e);
     buffer_init(&ret->status_response_buffer,  N(ret->raw_buff_f), ret->raw_buff_f);
+
+    metrics->concurrentConnections++;
+    metrics->historicConnections++;
 
     ret->references = 1;
 finally:
@@ -1028,6 +1032,8 @@ finish_external_process(struct selector_key *key) {
     ATTACHMENT(key)->filter_out_fds[1] = -1;
     waitpid(ATTACHMENT(key)->filter_pid, NULL, 0);
     ATTACHMENT(key)->filter_pid = -1;
+
+    metrics->mailsFiltered++;
 }
 
 static bool is_multi_response(enum request_cmd_type cmd) {
@@ -1056,9 +1062,11 @@ response_read(struct selector_key *key)
     ssize_t  n;
 
     ptr = buffer_write_ptr(b, &count);
+    //printf("%d\n", (int)count);
     n = recv(key->fd, ptr, count, 0);
+    //printf("%d\n", (int)n);
 
-    if(n > 0 || buffer_can_read(b)) {
+    if(n > 0) {
         buffer_write_adv(b, n);
 
         if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR &&
@@ -1192,10 +1200,18 @@ response_write(struct selector_key *key)
         if(n == -1) {
             ret = ERROR;
         } else if (n == 0) {
-            selector_status ss = SELECTOR_SUCCESS;
-            ss |= selector_set_interest_key(key, OP_NOOP);
-            ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
-            ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
+            if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
+                selector_status ss = SELECTOR_SUCCESS;
+                ss |= selector_set_interest_key(key, OP_NOOP);
+                ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_out_fds[0], OP_READ);
+                ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
+            }
+            else {
+                selector_status ss = SELECTOR_SUCCESS;
+                ss |= selector_set_interest_key(key, OP_NOOP);
+                ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+                ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
+            }
         } 
         else {
             if (ATTACHMENT(key)->origin_pipelining) {
@@ -1340,8 +1356,9 @@ filter_read(struct selector_key *key)
 
     ptr = buffer_write_ptr(b, &count);
     n = read(key->fd, ptr, count);
+    //printf("leyendo del filter\n");
 
-    if(n > 0 || buffer_can_read(b)) {
+    if(n > 0) {
         buffer_write_adv(b, n);
         selector_status ss = SELECTOR_SUCCESS;
         ss |= selector_set_interest_key(key, OP_NOOP);
@@ -1369,9 +1386,16 @@ filter_write(struct selector_key *key)
     ssize_t  n;
 
     n = write_next_response_multi_line_to_filter(key, b);
+    //printf("escribiendo en el filter\n");
 
     if(n == -1) {
         ret = ERROR;
+    } 
+    else if (n == 0) {
+        selector_status ss = SELECTOR_SUCCESS;
+        ss |= selector_set_interest_key(key, OP_NOOP);
+        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+        ret = SELECTOR_SUCCESS == ss ? RESPONSE : ERROR;
     } else {
         selector_status ss = SELECTOR_SUCCESS;
         ss |= selector_set_interest_key(key, OP_NOOP);
@@ -1406,12 +1430,14 @@ write_next_response_multi_line_to_filter(struct selector_key *key, buffer * b) {
             parser_destroy(ATTACHMENT(key)->filter.filter.multi_parser);
             ATTACHMENT(key)->filter.filter.multi_parser = NULL;
             n = write(key->fd, ptr, i);
+            metrics->bytesTransferred += n;
             return n;
         }
     }
 
     n = write(key->fd, ptr, count);
-    return n;
+    metrics->bytesTransferred += n;
+    return 0;
 }
 
 static void
@@ -1514,6 +1540,7 @@ pop3filter_close(struct selector_key *key) {
 
     if(ERROR == st || DONE == st) {
         pop3filter_destroy(ATTACHMENT(key));
+        metrics->concurrentConnections--;
     }
 }
 
@@ -1535,4 +1562,6 @@ pop3filter_done(struct selector_key *key) {
             close(fds[i]);
         }
     }
+
+    metrics->concurrentConnections--;
 }
