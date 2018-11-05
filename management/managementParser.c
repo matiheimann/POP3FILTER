@@ -14,7 +14,8 @@ unsigned char* readCommand(int* size)
 	char buffer[BUFFER_COMMAND_SIZE]  = {0};
 	unsigned char* ret;
 	fgets(buffer, BUFFER_COMMAND_SIZE, stdin);
-	buffer[strspn(buffer, "\n")] = 0;
+	*strstr(buffer, "\n") = '\0';
+	printf("%s\n", buffer);
 	if(strcmp(buffer, "concurrent connections") == 0)
 	{
 		ret = (unsigned char*) calloc(2, sizeof(char));
@@ -175,7 +176,7 @@ void helpMessage()
 	printf("8 - 'set mediatypes <mediatype1,mediatype2,...,mediatypesN>'\n");
 	printf("9 - 'set replacement message <message>'\n");
 	printf("10 - 'set filter command  <command>'\n");
-	printf("11- 'user <username>'\n");
+	printf("11 - 'user <username>'\n");
 	printf("12 - 'password <password>'\n");
 	printf("13 - 'help'\n");
 	printf("14 - 'exit'\n");

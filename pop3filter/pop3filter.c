@@ -128,9 +128,8 @@ struct hello_st {
 /** usado por REQUEST */
 struct request_st {
     /** buffer utilizado para I/O */
-    buffer                      *reqb, *areqb;
+    buffer                      *reqb, *auxb, *cmdb;
     enum request_cmd_type       cmd_type;
-    bool                        request_not_finished;
 
     struct next_request         *next_cmd_type;
     struct next_request         *last_cmd_type;
@@ -139,7 +138,7 @@ struct request_st {
 /** usado por RESPONSE */
 struct response_st {
     /** buffer utilizado para I/O */
-    buffer                      *resb, *filb;
+    buffer                      *resb, *filb, *stab;
     struct parser               *multi_parser;
     bool                        response_not_finished;
 };
@@ -207,8 +206,8 @@ struct pop3filter {
     } orig;
     
     /** buffers para ser usados read_buffer, write_buffer.*/
-    uint8_t raw_buff_a[MAX_BUFFER], raw_buff_b[MAX_BUFFER], raw_buff_c[MAX_BUFFER], raw_buff_d[MAX_BUFFER];
-    buffer request_buffer, response_buffer, filter_buffer, aux_request_buffer;
+    uint8_t raw_buff_a[MAX_BUFFER], raw_buff_b[MAX_BUFFER], raw_buff_c[MAX_BUFFER], raw_buff_d[MAX_BUFFER], raw_buff_e[MAX_BUFFER], raw_buff_f[MAX_BUFFER];
+    buffer request_buffer, response_buffer, filter_buffer, aux_request_buffer, cmd_request_buffer, status_response_buffer;
     
     /** cantidad de referencias a este objeto. si es uno se debe destruir */
     unsigned references;
@@ -260,6 +259,8 @@ pop3filter_new(int client_fd) {
     buffer_init(&ret->response_buffer,  N(ret->raw_buff_b), ret->raw_buff_b);
     buffer_init(&ret->filter_buffer,  N(ret->raw_buff_c), ret->raw_buff_c);
     buffer_init(&ret->aux_request_buffer,  N(ret->raw_buff_d), ret->raw_buff_d);
+    buffer_init(&ret->cmd_request_buffer,  N(ret->raw_buff_e), ret->raw_buff_e);
+    buffer_init(&ret->status_response_buffer,  N(ret->raw_buff_f), ret->raw_buff_f);
 
     ret->references = 1;
 finally:
@@ -724,7 +725,8 @@ request_init(const unsigned state, struct selector_key *key)
 {
     struct request_st * d = &ATTACHMENT(key)->client.request;
     d->reqb = &ATTACHMENT(key)->request_buffer;
-    d->areqb = &ATTACHMENT(key)->aux_request_buffer;
+    d->auxb = &ATTACHMENT(key)->aux_request_buffer;
+    d->cmdb = &ATTACHMENT(key)->cmd_request_buffer;
 }
 
 /** Lee la request del cliente */
@@ -788,7 +790,7 @@ request_write(struct selector_key *key)
                 }
             }
             else {
-                buffer *ab            = d->areqb;
+                buffer *ab            = d->auxb;
                 uint8_t *aptr;
                 size_t  count;
 
@@ -825,118 +827,107 @@ request_write(struct selector_key *key)
 
 static ssize_t
 send_next_request(struct selector_key *key, buffer * b) {
-    uint8_t *ptr;
-    uint8_t *end_ptr = NULL;
+    buffer *cb            = ATTACHMENT(key)->client.request.cmdb;
+    uint8_t *cptr;
+
+    size_t count;
+    ssize_t n = 0;
+
     size_t i = 0;
-    size_t  count;
-    ssize_t  n;
 
     if (!buffer_can_read(b))
         return 0;
 
-    ptr = buffer_read_ptr(b, &count);
-
-    while (i < count && end_ptr == NULL) {
-        if (*(ptr+i) == '\n')
-            end_ptr = ptr+i;
+    while (buffer_can_read(b) && n == 0) {
         i++;
+        char c = buffer_read(b);
+        if (c == '\n') {
+            n = i;
+        }
+        buffer_write(cb, c);
     }
 
-    if (end_ptr == NULL) {
-        n = send(ATTACHMENT(key)->origin_fd, ptr, count, MSG_NOSIGNAL);
-    }
-    else {
-        n = end_ptr - ptr + 1;
-        if (ATTACHMENT(key)->origin_pipelining) {
-            buffer *ab            = ATTACHMENT(key)->client.request.areqb;
-            uint8_t *aptr;
-            size_t  count;
-
-            aptr = buffer_write_ptr(ab, &count);
-            memcpy(aptr, ptr, n);
-            buffer_write_adv(ab, n);
-        }
-        else {
-            n = send(ATTACHMENT(key)->origin_fd, ptr, n, MSG_NOSIGNAL);
-        }
-    }
-
-    if (!ATTACHMENT(key)->client.request.request_not_finished) {
-        int cmd_n;
-        char cmd[16], arg1[32], arg2[32], extra[5];
-        char * aux = malloc(n+1);
-        memcpy(aux, ptr, n);
-        aux[n] = '\0';
-
-        cmd_n = sscanf(aux, "%s %s %s %s", cmd, arg1, arg2, extra);
-
-        if (strcasecmp(cmd, "RETR") == 0 && cmd_n == 2) {
-            ATTACHMENT(key)->client.request.cmd_type = MULTI_RETR;
-            ATTACHMENT(key)->retr_commands++;
-        }   
-        else if (strcasecmp(cmd, "LIST") == 0 && cmd_n == 1) {
-            ATTACHMENT(key)->client.request.cmd_type = MULTI_LIST;
-        }
-        else if (strcasecmp(cmd, "CAPA") == 0 && cmd_n == 1) {
-            ATTACHMENT(key)->client.request.cmd_type = MULTI_CAPA;
-        }
-        else if (strcasecmp(cmd, "UIDL") == 0 && cmd_n == 1) {
-            ATTACHMENT(key)->client.request.cmd_type = MULTI_UIDL;
-        }
-        else if (strcasecmp(cmd, "TOP") == 0 && cmd_n == 3) {
-            ATTACHMENT(key)->client.request.cmd_type = MULTI_TOP;
-            ATTACHMENT(key)->top_commands++;
-        }
-        else if (strcasecmp(cmd, "USER") == 0 && cmd_n == 2) {
-            ATTACHMENT(key)->client.request.cmd_type = USER;
-            ATTACHMENT(key)->logged_in_username = malloc(strlen(arg1)+1);
-            strcpy(ATTACHMENT(key)->logged_in_username, arg1);
-        }
-        else if (strcasecmp(cmd, "PASS") == 0 && cmd_n == 2) {
-            ATTACHMENT(key)->client.request.cmd_type = PASS;
-            print_login_info_message(ATTACHMENT(key)->client_addr, ATTACHMENT(key)->logged_in_username);
-        }
-        else if (strcasecmp(cmd, "DELE") == 0 && cmd_n == 2) {
-            ATTACHMENT(key)->client.request.cmd_type = DELE;
-            ATTACHMENT(key)->dele_commands++;
-        }   
-        else if (strcasecmp(cmd, "QUIT") == 0 && cmd_n == 1) {
-            ATTACHMENT(key)->client.request.cmd_type = QUIT;
-            print_logout_info_message(ATTACHMENT(key)->client_addr, ATTACHMENT(key)->logged_in_username, 
-                ATTACHMENT(key)->top_commands, ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
-        }
-        else {
-            ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
-        }
-
-        free(aux);
-
-        if (ATTACHMENT(key)->origin_pipelining) {
-            struct next_request *next = malloc(sizeof(next));
-            next->cmd_type = ATTACHMENT(key)->client.request.cmd_type;
-            next->next = NULL;
-            if (ATTACHMENT(key)->client.request.last_cmd_type == NULL) {
-                ATTACHMENT(key)->client.request.next_cmd_type = next;
-                ATTACHMENT(key)->client.request.last_cmd_type = next;
-            }
-            else {
-                ATTACHMENT(key)->client.request.last_cmd_type->next = next;
-                ATTACHMENT(key)->client.request.last_cmd_type = next;
-            }
-        }
-
-    }
-
-    if (end_ptr == NULL) {
-        buffer_read_adv(b, n);
-        ATTACHMENT(key)->client.request.request_not_finished = true;
+    if (n == 0) {
         return 0;
     }
 
-    if (n != -1) {
-        buffer_read_adv(b, n);
-        ATTACHMENT(key)->client.request.request_not_finished = false;
+    cptr = buffer_read_ptr(cb, &count);
+
+    int cmd_n;
+    char cmd[16], arg1[32], arg2[32], extra[5];
+    char * aux = malloc(count+1);
+    memcpy(aux, cptr, count);
+    aux[count] = '\0';
+
+    cmd_n = sscanf(aux, "%s %s %s %s", cmd, arg1, arg2, extra);
+
+    if (strcasecmp(cmd, "RETR") == 0) {
+        ATTACHMENT(key)->client.request.cmd_type = MULTI_RETR;
+        ATTACHMENT(key)->retr_commands++;
+    }   
+    else if (strcasecmp(cmd, "LIST") == 0 && cmd_n == 1) {
+        ATTACHMENT(key)->client.request.cmd_type = MULTI_LIST;
     }
+    else if (strcasecmp(cmd, "CAPA") == 0) {
+        ATTACHMENT(key)->client.request.cmd_type = MULTI_CAPA;
+    }
+    else if (strcasecmp(cmd, "UIDL") == 0 && cmd_n == 1) {
+        ATTACHMENT(key)->client.request.cmd_type = MULTI_UIDL;
+    }
+    else if (strcasecmp(cmd, "TOP") == 0) {
+        ATTACHMENT(key)->client.request.cmd_type = MULTI_TOP;
+        ATTACHMENT(key)->top_commands++;
+    }
+    else if (strcasecmp(cmd, "USER") == 0) {
+        ATTACHMENT(key)->client.request.cmd_type = USER;
+        ATTACHMENT(key)->logged_in_username = malloc(strlen(arg1)+1);
+        strcpy(ATTACHMENT(key)->logged_in_username, arg1);
+    }
+    else if (strcasecmp(cmd, "PASS") == 0) {
+        ATTACHMENT(key)->client.request.cmd_type = PASS;
+        print_login_info_message(ATTACHMENT(key)->client_addr, ATTACHMENT(key)->logged_in_username);
+    }
+    else if (strcasecmp(cmd, "DELE") == 0) {
+        ATTACHMENT(key)->client.request.cmd_type = DELE;
+        ATTACHMENT(key)->dele_commands++;
+    }   
+    else if (strcasecmp(cmd, "QUIT") == 0) {
+        ATTACHMENT(key)->client.request.cmd_type = QUIT;
+        print_logout_info_message(ATTACHMENT(key)->client_addr, ATTACHMENT(key)->logged_in_username, 
+        ATTACHMENT(key)->top_commands, ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
+    }
+    else {
+        ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
+    }
+
+    free(aux);
+
+    if (ATTACHMENT(key)->origin_pipelining) {
+        struct next_request *next = malloc(sizeof(next));
+        next->cmd_type = ATTACHMENT(key)->client.request.cmd_type;
+        next->next = NULL;
+        if (ATTACHMENT(key)->client.request.last_cmd_type == NULL) {
+            ATTACHMENT(key)->client.request.next_cmd_type = next;
+            ATTACHMENT(key)->client.request.last_cmd_type = next;
+        }
+        else {
+            ATTACHMENT(key)->client.request.last_cmd_type->next = next;
+            ATTACHMENT(key)->client.request.last_cmd_type = next;
+        }
+
+        buffer *ab            = ATTACHMENT(key)->client.request.auxb;
+        uint8_t *aptr;
+        size_t acount;
+
+        aptr = buffer_write_ptr(ab, &acount);
+        memcpy(aptr, cptr, count);
+        buffer_write_adv(ab, count);
+    }
+    else {
+        n = send(ATTACHMENT(key)->origin_fd, cptr, count, MSG_NOSIGNAL);
+    }
+
+    buffer_reset(cb);
 
     return n;  
 }
@@ -964,6 +955,7 @@ response_init(const unsigned state, struct selector_key *key)
     struct response_st * d = &ATTACHMENT(key)->orig.response;
     d->resb = &ATTACHMENT(key)->response_buffer;
     d->filb = &ATTACHMENT(key)->filter_buffer;
+    d->stab = &ATTACHMENT(key)->status_response_buffer;
 }
 
 static pid_t
@@ -1222,44 +1214,36 @@ response_write(struct selector_key *key)
 
 static ssize_t
 send_next_response_status_line(struct selector_key *key, buffer * b) {
-    uint8_t *ptr;
-    uint8_t *end_ptr = NULL;
+    buffer *sb            = ATTACHMENT(key)->orig.response.stab;
+    uint8_t *sptr;
+
+    size_t count;
+    ssize_t n = 0;
+
     size_t i = 0;
-    size_t  count;
-    ssize_t  n;
 
-    ptr = buffer_read_ptr(b, &count);
-
-    while (i < count && end_ptr == NULL) {
-        if (*(ptr+i) == '\n')
-            end_ptr = ptr+i;
+    while (buffer_can_read(b) && n == 0) {
         i++;
-    }
-
-    if (end_ptr == NULL) {
-        n = send(ATTACHMENT(key)->client_fd, ptr, count, MSG_NOSIGNAL);
-    }
-    else {
-        n = end_ptr - ptr + 1;
-        n = send(ATTACHMENT(key)->client_fd, ptr, n, MSG_NOSIGNAL);
-    }
-
-    if (!ATTACHMENT(key)->orig.response.response_not_finished) {
-        if (is_multi_response(ATTACHMENT(key)->client.request.cmd_type) && strncasecmp((char*)ptr, "+OK", 3) != 0) {
-            ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
+        char c = buffer_read(b);
+        if (c == '\n') {
+            n = i;
         }
+        buffer_write(sb, c);
     }
 
-    if (end_ptr == NULL) {
-        buffer_read_adv(b, n);
-        ATTACHMENT(key)->orig.response.response_not_finished = true;
+    if (n == 0) {
         return 0;
     }
 
-    if (n != -1) {
-        buffer_read_adv(b, n);
-        ATTACHMENT(key)->orig.response.response_not_finished = false;
+    sptr = buffer_read_ptr(sb, &count);
+
+    if (strncasecmp((char*)sptr, "+OK", 3) != 0) {
+        ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
     }
+
+    n = send(ATTACHMENT(key)->client_fd, sptr, count, MSG_NOSIGNAL);
+
+    buffer_reset(sb);
 
     return n;
 }
