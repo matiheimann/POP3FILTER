@@ -95,8 +95,6 @@ void setConfiguration(int argc, char* const argv[])
 		}
 	}
 
-	setFilterEnviromentVariables(options->censoredMediaTypes, options->replacementMessage);
-
 	if (argv[optind] == NULL) 
   		printHelp();
 	else
@@ -224,22 +222,12 @@ void printVersion()
 	exit(0);
 }
 
-char* strcatFixStrings(char* s1, char* s2)
+char * strcatFixStrings(char* s1, char* s2)
 {
-	char* aux = malloc((strlen(s1) + strlen(s2) + 1) * sizeof(char));
+	char* aux = calloc((strlen(s1) + strlen(s2) + 1), sizeof(char));
 	strcat(aux, s1);
 	strcat(aux, s2);
 	return aux;
-}
-
-void setFilterEnviromentVariables(char* mediaTypesCensored, char* replacementMessage)
-{
-	if(putenv(strcatFixStrings("FILTER_MEDIAS=", mediaTypesCensored)) != 0 ||
-		putenv(strcatFixStrings("FILTER_MSG=", replacementMessage)) != 0)
-	{
-		printf("Can't set enviroment variables\n");
-		exit(1);
-	}
 }
 
 int isValidFile(char* file)

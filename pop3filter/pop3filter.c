@@ -150,6 +150,14 @@ struct filter_st {
     struct parser               *multi_parser;
 };
 
+struct env_st {
+    char * filterMedias;
+    char * filterMessage;
+    char * pop3filter_version;
+    char * pop3_username;
+    char * pop3_server;
+};
+
 /*
  * Si bien cada estado tiene su propio struct que le da un alcance
  * acotado, disponemos de la siguiente estructura para hacer una única
@@ -194,16 +202,18 @@ struct pop3filter {
         struct request_st         request;
     } client;
 
-    /** estados para el filter_fd */
-    union {
-        struct filter_st          filter;
-    } filter;
-
     /** estados para el origin_fd */
     union {
         struct hello_st           hello;
         struct response_st        response;
     } orig;
+
+    /** estados para el filter_fd */
+    union {
+        struct filter_st          filter;
+    } filter;
+
+    struct env_st                 env_variables;
     
     /** buffers para ser usados read_buffer, write_buffer.*/
     uint8_t raw_buff_a[MAX_BUFFER], raw_buff_b[MAX_BUFFER], raw_buff_c[MAX_BUFFER], raw_buff_d[MAX_BUFFER], raw_buff_e[MAX_BUFFER], raw_buff_f[MAX_BUFFER];
@@ -972,6 +982,7 @@ request_close(const unsigned state, struct selector_key *key)
 ////////////////////////////////////////////////////////////////////////////////
 
 static pid_t start_external_process(struct selector_key *key);
+static char * mallocEnv(char* s1, char* s2);
 static void finish_external_process(struct selector_key *key);
 static bool is_multi_response(enum request_cmd_type cmd);
 static ssize_t send_next_response_status_line(struct selector_key *key, buffer * b);
@@ -1000,6 +1011,13 @@ start_external_process(struct selector_key *key) {
         return -1;
     }
 
+
+    ATTACHMENT(key)->env_variables.filterMedias = mallocEnv("FILTER_MEDIAS=", options->censoredMediaTypes);
+    ATTACHMENT(key)->env_variables.filterMessage = mallocEnv("FILTER_MSG=", options->replacementMessage);
+    ATTACHMENT(key)->env_variables.pop3filter_version = mallocEnv("POP3FILTER_VERSION=", options->version);
+    ATTACHMENT(key)->env_variables.pop3_username = mallocEnv("POP3_USERNAME=", ATTACHMENT(key)->logged_in_username);
+    ATTACHMENT(key)->env_variables.pop3_server = mallocEnv("POP3_SERVER=", options->originServer);
+
     pid = fork();
     if (pid == -1) {
         return -1;
@@ -1010,6 +1028,12 @@ start_external_process(struct selector_key *key) {
 
         dup2(ATTACHMENT(key)->filter_in_fds[0], STDIN_FILENO);
         dup2(ATTACHMENT(key)->filter_out_fds[1], STDOUT_FILENO);
+
+        putenv(ATTACHMENT(key)->env_variables.filterMedias);
+        putenv(ATTACHMENT(key)->env_variables.filterMessage);
+        putenv(ATTACHMENT(key)->env_variables.pop3filter_version);
+        putenv(ATTACHMENT(key)->env_variables.pop3_username);
+        putenv(ATTACHMENT(key)->env_variables.pop3_server);
         
         return execl("/bin/sh", "sh", "-c", options->command, NULL);
     }
@@ -1018,6 +1042,14 @@ start_external_process(struct selector_key *key) {
     close(ATTACHMENT(key)->filter_out_fds[1]);
     
     return pid;
+}
+
+static char * 
+mallocEnv(char* s1, char* s2) {
+    char* aux = calloc(strlen(s1) + strlen(s2) + 1, sizeof(char));
+    strcat(aux, s1);
+    strcat(aux, s2);
+    return aux;
 }
 
 static void
@@ -1032,6 +1064,12 @@ finish_external_process(struct selector_key *key) {
     ATTACHMENT(key)->filter_out_fds[1] = -1;
     waitpid(ATTACHMENT(key)->filter_pid, NULL, 0);
     ATTACHMENT(key)->filter_pid = -1;
+
+    free(ATTACHMENT(key)->env_variables.filterMedias);
+    free(ATTACHMENT(key)->env_variables.filterMessage);
+    free(ATTACHMENT(key)->env_variables.pop3filter_version);
+    free(ATTACHMENT(key)->env_variables.pop3_username);
+    free(ATTACHMENT(key)->env_variables.pop3_server);
 
     metrics->mailsFiltered++;
 }
