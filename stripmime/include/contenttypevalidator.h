@@ -1,12 +1,26 @@
 #ifndef CONTENT_TYPE_VALIDATOR_H
-#define CONTENT_TYPE_VALIDATOR_H 
+#define CONTENT_TYPE_VALIDATOR_H
+
+typedef enum typesofmatches
+{
+	NORMAL_MATCH = 1,
+	MULTIPART_MATCH,
+	MESSAGE_MATCH
+
+}typesofmatches;
 
 typedef struct contentypevalidator
 {
 	int quantityMediaTypes;
-	int stillValid;
+	int stillValidCensored;
+	int stillValidExtras;
+	/*Media types censurables separados por ,*/
 	char* mediatypes;
-	int* isValid;
+	/*Para message/ y multipart/ que si no estan censurados tienen
+	un comportamiento diferente al de todos los media types*/
+	char** extramediatypes;
+	int* isValidCensored;
+	int* isValidExtras;
 	int* startingIndex;
 	int ignore;
 	int index;

@@ -15,6 +15,7 @@ typedef struct stackstring
 {
 	
 	stackstringnodeADT peek;
+	int size;
 
 }stackstring;
 
@@ -22,5 +23,6 @@ stackstring* initStringStack();
 char* peekString(stackstring* elem);
 char* popString(stackstring* node);
 void pushString(stackstring* s, char* value);
+int isEmpty(stackstring* s);
 
 #endif

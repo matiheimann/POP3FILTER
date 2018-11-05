@@ -13,9 +13,12 @@ contentypevalidator* initcontenttypevalidator(char* mts)
 	if(mts[0] == 0)
 	{
 		ctp->quantityMediaTypes = 0;
-		ctp->isValid = NULL;
 		ctp->startingIndex = NULL;
-		ctp->stillValid = 0;
+		ctp->stillValidCensored = 0;
+		ctp->stillValidExtras = 0;
+		ctp->extramediatypes[0] = "multipart";
+		ctp->extramediatypes[1] = "message";
+		return ctp;
 	}
 
 	int counter = 1;
@@ -29,10 +32,15 @@ contentypevalidator* initcontenttypevalidator(char* mts)
 		i++;
 	}
 
-	ctp->stillValid = 1;
+	ctp->stillValidCensored = 1;
+	ctp->stillValidExtras = 1;
 	ctp->quantityMediaTypes = counter;
-	ctp->isValid = malloc(counter * sizeof(int));
+	ctp->isValidCensored = malloc(counter * sizeof(int));
+	ctp->isValidExtras = malloc(2 * sizeof(int));
 	ctp->startingIndex = malloc(counter * sizeof(int));
+	ctp->extramediatypes = malloc(2 * sizeof(char*));
+	ctp->extramediatypes[0] = "multipart";
+	ctp->extramediatypes[1] = "message";
 	ctp->ignore = 0;
 	ctp->index = 0;
 	ctp->matchfound = 0;
@@ -40,7 +48,12 @@ contentypevalidator* initcontenttypevalidator(char* mts)
 
 	for(i = 0; i < counter; i++)
 	{
-		ctp->isValid[i] = 1;
+		ctp->isValidCensored[i] = 1;
+	}
+
+	for(i = 0; i < 2; i++)
+	{
+		ctp->isValidExtras[i] = 1;
 	}
 
 	i=0;
@@ -61,7 +74,9 @@ contentypevalidator* initcontenttypevalidator(char* mts)
 void destroycontenttypevalidator(contentypevalidator* ctp)
 {
 	free(ctp->mediatypes);
-	free(ctp->isValid);
+	free(ctp->isValidCensored);
+	free(ctp->isValidExtras);
+	free(ctp->extramediatypes);
 	free(ctp->startingIndex);
 	free(ctp);
 	return;
@@ -88,42 +103,65 @@ int checkmediatypes(contentypevalidator* ctp, char c)
 		return 0;
 	}
 
-	ctp->stillValid = 0;
+	ctp->stillValidCensored = 0;
 	for(int i = 0; i < ctp->quantityMediaTypes; i++)
 	{
-		if(ctp->isValid[i])
+		if(ctp->isValidCensored[i])
 		{
 			ctp->lastmatch = i;
 			/*Caracter a comparar en los media types*/
 			int carachter = ctp->startingIndex[i] + ctp->index;
 			if(ctp->mediatypes[carachter] == '*')
 			{
-				ctp->matchfound = 1;
+				ctp->matchfound = NORMAL_MATCH;
 				return 1;
 			}
 			else if((c == ';' || isspace(c)) && (ctp->mediatypes[carachter] == 0 ||
 				ctp->mediatypes[carachter] == ','))
 			{
-				ctp->matchfound = 1;
+				ctp->matchfound = NORMAL_MATCH;
 				return 1;
 			}
 			if(ctp->mediatypes[carachter] == ',' || ctp->mediatypes[carachter] == 0 ||
 				tolower(ctp->mediatypes[carachter]) != tolower(c))
 			{
-				ctp->isValid[i] = 0;
+				ctp->isValidCensored[i] = 0;
 			}
 			else if(ctp->mediatypes[carachter] != c)
 			{
-				ctp->isValid[i] = 0;
+				ctp->isValidCensored[i] = 0;
 			}
 			else
 			{
-				ctp->stillValid = 1;
+				ctp->stillValidCensored = 1;
 			}
 		}
 	}
-	if(ctp->stillValid)
+
+	ctp->stillValidExtras = 0;
+
+	for(int i = 0; i < 2; i++)
+	{
+		if(ctp->isValidExtras[i])
+		{
+			if(ctp->extramediatypes[i][ctp->index] == c)
+			{
+				ctp->stillValidExtras = 1;
+			}
+			else if(ctp->extramediatypes[i][ctp->index] == 0 &&
+				c == '/')
+			{
+				ctp->matchfound = 2 + i;
+			}
+			else
+			{
+				ctp->isValidExtras[i] = 0;
+			}
+		}
+	}
+
+	if(ctp->stillValidExtras || ctp->stillValidCensored)
 		(ctp->index)++;
 
-	return ctp->stillValid;
+	return (ctp->stillValidExtras || ctp->stillValidCensored);
 }

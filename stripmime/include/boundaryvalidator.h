@@ -15,5 +15,6 @@ typedef struct boundaryvalidator
 
 boundaryvalidator* initboundaryvalidator();
 void destroyboundaryvalidator(boundaryvalidator* bv);
+int checkboundary(boundaryvalidator* bv, char c);
 
 #endif

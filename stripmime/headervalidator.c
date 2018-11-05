@@ -28,9 +28,9 @@ int checkheader(headervalidator* hv, char c)
 	hv->stillvalid = 0;
 	for(int i = 0; i < 4; i++)
 	{
-		hv->lastmatch = i;
 		if(hv->isvalid[i])
 		{
+			hv->lastmatch = i;
 			if(c == ':' && hv->headers[i][hv->index] == 0)
 			{
 				hv->matchfound = i+1;
