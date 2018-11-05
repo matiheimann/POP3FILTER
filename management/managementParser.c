@@ -14,8 +14,8 @@ unsigned char* readCommand(int* size)
 	char buffer[BUFFER_COMMAND_SIZE]  = {0};
 	unsigned char* ret;
 	fgets(buffer, BUFFER_COMMAND_SIZE, stdin);
-	buffer[strspn(buffer, "\n")] = '\0';
-	printf("%s", buffer);
+	*strstr(buffer, "\n") = '\0';
+	printf("%s\n", buffer);
 	if(strcmp(buffer, "concurrent connections") == 0)
 	{
 		ret = (unsigned char*) calloc(2, sizeof(char));
