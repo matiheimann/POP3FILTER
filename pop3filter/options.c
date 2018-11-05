@@ -10,7 +10,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <string.h>
-#include <ctype.h> 
+#include <ctype.h>
 
 #include "options.h"
 #include "iputils.h"
