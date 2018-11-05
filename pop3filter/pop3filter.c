@@ -122,7 +122,7 @@ struct next_request {
 /** usado por HELLO */
 struct hello_st {
     /** buffer utilizado para I/O */
-    buffer                      *resb;
+    buffer                      *resb, *stab;
 };
 
 /** usado por REQUEST */
@@ -140,7 +140,6 @@ struct response_st {
     /** buffer utilizado para I/O */
     buffer                      *resb, *filb, *stab;
     struct parser               *multi_parser;
-    bool                        response_not_finished;
 };
 
 /** usado por FILTER */
@@ -562,12 +561,15 @@ connecting(struct selector_key *key)
 // HELLO
 ////////////////////////////////////////////////////////////////////////////////
 
+static ssize_t send_hello_status_line(struct selector_key *key, buffer * b);
+
 /** inicializa las variables del estado HELLO */
 static void
 hello_init(const unsigned state, struct selector_key *key) 
 {
     struct hello_st *d = &ATTACHMENT(key)->orig.hello;
     d->resb = &ATTACHMENT(key)->response_buffer;
+    d->stab = &ATTACHMENT(key)->status_response_buffer;
 }
 
 /** Lee todos los bytes del mensaje de tipo `hello' de server_fd */
@@ -608,40 +610,63 @@ hello_write(struct selector_key *key)
     enum pop3filter_state  ret      = HELLO;
 
     buffer *b            = d->resb;
-    uint8_t *ptr;
-    size_t  count;
     ssize_t  n;
 
-    ptr = buffer_read_ptr(b, &count);
-    n = send(key->fd, ptr, count, MSG_NOSIGNAL);
+    n = send_hello_status_line(key, b);
 
-    if(n == -1) {
+    if (n == -1) {
         ret = ERROR;
+    } 
+    else if (n == 0) {
+        selector_status ss = SELECTOR_SUCCESS;
+        ss |= selector_set_interest_key(key, OP_NOOP);
+        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+        ret = SELECTOR_SUCCESS == ss ? HELLO : ERROR;
     } else {
-        buffer_read_adv(b, n);
-        if (!buffer_can_read(b)) {
-            if (n == MAX_BUFFER 
-                && poll(&(struct pollfd){ .fd = ATTACHMENT(key)->origin_fd, .events = POLLIN }, 1, 0) == 1) {
-                selector_status ss = SELECTOR_SUCCESS;
-                ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
-                ret = SELECTOR_SUCCESS == ss ? HELLO : ERROR;
-            }
-            else {
-                selector_status ss = SELECTOR_SUCCESS;
-                ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
-                ret = SELECTOR_SUCCESS == ss ? CAPA : ERROR;
+        selector_status ss = SELECTOR_SUCCESS;
+        ss |= selector_set_interest_key(key, OP_NOOP);
+        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+        ret = SELECTOR_SUCCESS == ss ? CAPA : ERROR;
 
-                if (ret == CAPA) {
-                    char * msg = "CAPA\r\n";
-                    send(ATTACHMENT(key)->origin_fd, msg, strlen(msg), MSG_NOSIGNAL);
-                }
-            }
+        if (ret == CAPA) {
+            char * msg = "CAPA\r\n";
+            send(ATTACHMENT(key)->origin_fd, msg, strlen(msg), MSG_NOSIGNAL);
         }
     }
 
     return ret;
+}
+
+static ssize_t
+send_hello_status_line(struct selector_key *key, buffer * b) {
+    buffer *sb            = ATTACHMENT(key)->orig.hello.stab;
+    uint8_t *sptr;
+
+    size_t count;
+    ssize_t n = 0;
+
+    size_t i = 0;
+
+    while (buffer_can_read(b) && n == 0) {
+        i++;
+        char c = buffer_read(b);
+        if (c == '\n') {
+            n = i;
+        }
+        buffer_write(sb, c);
+    }
+
+    if (n == 0) {
+        return 0;
+    }
+
+    sptr = buffer_read_ptr(sb, &count);
+
+    n = send(ATTACHMENT(key)->client_fd, sptr, count, MSG_NOSIGNAL);
+
+    buffer_reset(sb);
+
+    return n;
 }
 
 static void
