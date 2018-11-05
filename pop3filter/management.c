@@ -50,9 +50,6 @@ management_new(int client_fd) {
     buffer_init(&ret->read_buffer,  N(ret->raw_buff_a), ret->raw_buff_a);
     buffer_init(&ret->write_buffer, N(ret->raw_buff_b), ret->raw_buff_b);
 
-    printf("%s", options->command);
-    printf("\n");
-
 finally:
     return ret;
 }
