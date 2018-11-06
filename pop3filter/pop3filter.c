@@ -1415,7 +1415,7 @@ filter_read(struct selector_key *key)
 
     ptr = buffer_write_ptr(b, &count);
     n = read(key->fd, ptr, count);
-    printf("leyendo del filter\n");
+    //printf("leyendo del filter\n");
 
     if(n > 0) {
         buffer_write_adv(b, n);
@@ -1445,7 +1445,7 @@ filter_write(struct selector_key *key)
     ssize_t  n;
 
     n = write_next_response_multi_line_to_filter(key, b);
-    printf("escribiendo en el filter\n");
+    //printf("escribiendo en el filter\n");
 
     if(n == -1) {
         ret = ERROR;
