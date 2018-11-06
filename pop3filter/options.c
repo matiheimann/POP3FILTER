@@ -184,11 +184,15 @@ void addCensoredMediaType(char* mediaType)
 	}
 	if(strcmp(options->censoredMediaTypes, "") == 0)
 	{
-		options->censoredMediaTypes = mediaType;
+		strcpy(options->censoredMediaTypes,mediaType);
 		return;
 	}
+	char* aux1 = options->censoredMediaTypes;
 	options->censoredMediaTypes = strcatFixStrings(options->censoredMediaTypes, ",");
+	char* aux2 = options->censoredMediaTypes;
 	options->censoredMediaTypes = strcatFixStrings(options->censoredMediaTypes, mediaType);
+	free(aux1);
+	free(aux2);
 }
 
 void setManagementPort(char* port)
