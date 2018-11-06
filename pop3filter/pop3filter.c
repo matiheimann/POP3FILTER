@@ -1583,10 +1583,7 @@ pop3filter_block(struct selector_key *key) {
 
 static void
 pop3filter_close(struct selector_key *key) {
-    struct state_machine *stm   = &ATTACHMENT(key)->stm;
-    const enum pop3filter_state st    = (enum pop3filter_state)stm_state(stm);
-
-    if(ERROR == st || DONE == st) {
+    if(key->fd == ATTACHMENT(key)->client_fd || key->fd == ATTACHMENT(key)->origin_fd) {
         pop3filter_destroy(ATTACHMENT(key));
     }
 }
