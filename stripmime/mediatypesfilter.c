@@ -367,15 +367,16 @@ void filteremail(char* censoredMediaTypes, char* fm)
 						if(censored)
 						{
 							pushInt(context->actions, IGNORE_UNTIL_END);
+							write(STDOUT_FILENO, filterMessage, strlen(filterMessage));
 						}
 						else
 						{
 							pushInt(context->actions, WAIT_UNTIL_END);
+							write(STDOUT_FILENO, buffer + i, 1);
 						}
-						write(STDOUT_FILENO, buffer + i, 1);
 						break;
 					}
-		
+
 					if(censored)
 					{
 						write(STDOUT_FILENO, filterMessage, strlen(filterMessage));
