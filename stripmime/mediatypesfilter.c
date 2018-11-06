@@ -360,6 +360,22 @@ void filteremail(char* censoredMediaTypes, char* fm)
 				case CARRY_RETURN_END_OF_HEADERS:
 					write(STDOUT_FILENO, "\n", 1);
 					popInt(context->actions);
+
+					if(peekString(context->boundaries) == NULL)
+					{
+						popInt(context->actions);
+						if(censored)
+						{
+							pushInt(context->actions, IGNORE_UNTIL_END);
+						}
+						else
+						{
+							pushInt(context->actions, WAIT_UNTIL_END);
+						}
+						write(STDOUT_FILENO, buffer + i, 1);
+						break;
+					}
+		
 					if(censored)
 					{
 						write(STDOUT_FILENO, filterMessage, strlen(filterMessage));
@@ -407,21 +423,6 @@ void filteremail(char* censoredMediaTypes, char* fm)
 				/* Imprime hasta que aparece el boundary esperado */
 				case WAIT_UNTIL_BOUNDARY:
 
-					if(peekString(context->boundaries) == NULL)
-					{
-						popInt(context->actions);
-						if(censored)
-						{
-							pushInt(context->actions, IGNORE_UNTIL_END);
-						}
-						else
-						{
-							pushInt(context->actions, WAIT_UNTIL_END);
-						}
-						write(STDOUT_FILENO, buffer + i, 1);
-						break;
-					}
-
 					if(context->bc == NULL)
 					{
 						restartcontext(context);
@@ -468,6 +469,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					
 
 				case IGNORE_UNTIL_BOUNDARY:
+
 					if(context->bc == NULL)
 					{
 						restartcontext(context);
