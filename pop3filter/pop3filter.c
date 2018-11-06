@@ -1425,7 +1425,20 @@ filter_read(struct selector_key *key)
         ss |= selector_set_interest_key(key, OP_NOOP);
         ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
         ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
-    } else {
+    } 
+    else if (n == 0) {
+        ptr[0] = '\r';
+        ptr[1] = '\n';
+        ptr[2] = '.';
+        ptr[3] = '\r';
+        ptr[4] = '\n';
+        buffer_write_adv(b, 5);
+        selector_status ss = SELECTOR_SUCCESS;
+        ss |= selector_set_interest_key(key, OP_NOOP);
+        ss |= selector_set_interest(key->s, ATTACHMENT(key)->client_fd, OP_WRITE);
+        ret = ss == SELECTOR_SUCCESS ? RESPONSE : ERROR;
+    }
+    else {
         ret = ERROR;
     }
 
