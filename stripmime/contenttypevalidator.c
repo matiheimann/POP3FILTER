@@ -97,6 +97,7 @@ int checkmediatypes(contentypevalidator* ctp, char c)
 	if(c == '(')
 	{
 		ctp->ignore = 1;
+		return 0;
 	}
 	else if(c == ' ')
 	{
