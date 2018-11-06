@@ -473,11 +473,11 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					{
 						restartcontext(context);
 						char* aux = peekString(context->boundaries);
-						context->bc = malloc(sizeof(boundarycomparator));
 						context->bc = initboundarycomparator(aux);
 					}
 
 					compareboundaries(context->bc, buffer[i]);
+
 					if(buffer[i] == '\r')
 					{
 						if(context->bc->match)
