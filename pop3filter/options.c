@@ -187,12 +187,8 @@ void addCensoredMediaType(char* mediaType)
 		options->censoredMediaTypes = mediaType;
 		return;
 	}
-	char* aux1 = options->censoredMediaTypes;
 	options->censoredMediaTypes = strcatFixStrings(options->censoredMediaTypes, ",");
-	char* aux2 = options->censoredMediaTypes;
 	options->censoredMediaTypes = strcatFixStrings(options->censoredMediaTypes, mediaType);
-	free(aux1);
-	free(aux2);
 }
 
 void setManagementPort(char* port)
@@ -238,6 +234,7 @@ char * strcatFixStrings(char* s1, char* s2)
 	char* aux = calloc((strlen(s1) + strlen(s2) + 1), sizeof(char));
 	strcat(aux, s1);
 	strcat(aux, s2);
+	printf("%s\n", aux);
 	return aux;
 }
 
