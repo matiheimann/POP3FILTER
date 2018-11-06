@@ -69,22 +69,22 @@ unsigned char* readCommand(int* size)
 	}
 	else if(startsWith(buffer, "set mediatypes ") && checkValidMediaTypes(buffer + 15))
 	{
-		int strlength = strlen(buffer + 15);
-		ret = (unsigned char*) calloc(strlength + 4, sizeof(char));
+		int strlength = strlen(buffer + 15) + 1;
+		ret = (unsigned char*) calloc(strlength + 3, sizeof(char));
 		*(ret) = 0x81; // 10000000
 		*(ret + 1) = 0x1;
 		*(ret + 2) = 0x0;
-		strcpy((char*) ret + 3, buffer + 15);
-		*size = strlength + 4;
+		strcpy((char*) (ret + 3), buffer + 15);
+		*size = strlength + 3;
 	}
-	else if(startsWith(buffer, "set replacement message ")) // TODO: Is it necesary to check if valid?
+	else if(startsWith(buffer, "set replacement message "))
 	{
 		int strlength = strlen(buffer + 24);
 		ret = (unsigned char*) calloc(strlength + 4, sizeof(char));
 		*(ret) = 0x81;
 		*(ret + 1) = 0x1;
 		*(ret + 2) = 0x1;
-		strcpy((char*) ret + 3, buffer + 24);
+		strcpy((char*) (ret + 3), buffer + 24);
 		*size = strlength + 4;
 	}
 	else if(startsWith(buffer, "set filter command ")) // TODO: check valid command
@@ -94,7 +94,7 @@ unsigned char* readCommand(int* size)
 		*(ret) = 0x81;
 		*(ret + 1) = 0x1;
 		*(ret + 2) = 0x2;
-		strcpy((char*) ret + 3, buffer + 19);
+		strcpy((char*) (ret + 3), buffer + 19);
 		*size = strlength + 4;
 	}
 	else if(startsWith(buffer, "user ")) // TODO: check valid user

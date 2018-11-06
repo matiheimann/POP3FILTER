@@ -139,7 +139,7 @@ management_write(struct selector_key *key) {
 	struct management * data = ATTACHMENT(key);
 
     uint8_t *response = (uint8_t*) calloc(MAX_RESPONSE, sizeof(uint8_t));
-    int size;
+    int size = 0;
     ssize_t  n;
 
     response = receivePOP3FMPRequest(&data->read_buffer, response, &size);
@@ -148,6 +148,7 @@ management_write(struct selector_key *key) {
     {
         // TODO: register error.
     }
+    buffer_reset(&data->read_buffer);
     free(response);
     if(SELECTOR_SUCCESS != selector_set_interest_key(key, OP_READ)) {
        selector_unregister_fd(key->s, data->client_fd);
