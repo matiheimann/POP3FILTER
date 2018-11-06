@@ -15,8 +15,9 @@
 #include "mediatypes.h"
 #include "options.h"
 #include "metrics.h"
+#include "management.h"
 
-uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size)
+uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size, int* status)
 {
 	char* str = (char*) calloc(MAX_RESPONSE, sizeof(char));
 	int strIndex = 0;
@@ -40,7 +41,7 @@ uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size)
 		else
 		{
 			response[1] = 0x1; //SUPPORTED VERSION
-			transitions(firstByte, &state, response, size, str, &strIndex);
+			transitions(firstByte, &state, response, size, str, &strIndex, status);
 		}
 	}
 	else
@@ -53,7 +54,7 @@ uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size)
 	while(buffer_can_read(b))
 	{
 
-		transitions(buffer_read(b), &state, response, size, str, &strIndex);
+		transitions(buffer_read(b), &state, response, size, str, &strIndex, status);
 		if(((state == END  || 
 			state == CLOSE_CONNECTION || 
 			state == END_SET_MEDIATYPES || 
@@ -63,6 +64,19 @@ uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size)
 		{
 			consumeBuffer(b);
 			response[0] = 0xFF;
+			response[1] = 0x1;
+			*size = 2;
+			free(str);
+			return response;
+		}
+		else if((state == END || 
+			state == END_SET_MEDIATYPES || 
+			state == END_SET_MESSAGE || 
+			state == END_SET_FILTER) 
+			&& *status != PASS_ACCEPTED)
+		{
+			consumeBuffer(b);
+			response[0] = 0x85;
 			response[1] = 0x1;
 			*size = 2;
 			free(str);
@@ -95,12 +109,23 @@ uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size)
 		response[1] = 0x1;
 		*size = 2;
 	}
+	if((state == END || 
+		state == END_SET_MEDIATYPES || 
+		state == END_SET_MESSAGE || 
+		state == END_SET_FILTER) 
+		&& *status != PASS_ACCEPTED)
+	{
+		consumeBuffer(b);
+		response[0] = 0x85;
+		response[1] = 0x1;
+		*size = 2;
+	}
 	free(str);
 	return response;
 }
 
 
-int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* str, int* strIndex)
+int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* str, int* strIndex, int* status)
 {
 	switch(*state)
 	{
@@ -264,9 +289,19 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 						if(feed == '\0')
 						{
 							str[*strIndex] = feed;
-							strcpy((char*)(response + *size), "+OK");
-							*size += strlen("+OK") + 1;
-							*state = END;
+							if(strcmp(str, "root") == 0 && *status == LOGGED_OUT)
+							{
+								strcpy((char*)(response + *size), "+OK");
+								*size += strlen("+OK") + 1;
+								*state = END_AUTH;
+								*status = USER_ACCEPTED;
+							}
+							else
+							{
+								strcpy((char*)(response + *size), "-ERR");
+								*size += strlen("-ERR") + 1;
+								*state = END_AUTH;
+							}
 						}
 						else if(feed > 0 && feed <= 128)
 						{
@@ -288,9 +323,20 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 						if(feed == '\0')
 						{
 							str[*strIndex] = feed;
-							strcpy((char*)(response + *size), "+OK");
-							*size += strlen("+OK") + 1;
-							*state = END;
+							if(strcmp(str, "root") == 0 && *status == USER_ACCEPTED)
+							{
+								strcpy((char*)(response + *size), "+OK");
+								*size += strlen("+OK") + 1;
+								*state = END_AUTH;
+								*status = PASS_ACCEPTED;
+							}
+							else
+							{
+								strcpy((char*)(response + *size), "-ERR");
+								*size += strlen("-ERR") + 1;
+								*state = END_AUTH;
+								*status = LOGGED_OUT;
+							}
 						}
 						else if(feed > 0 && feed <= 128)
 						{

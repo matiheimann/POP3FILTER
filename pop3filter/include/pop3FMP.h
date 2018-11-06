@@ -40,11 +40,12 @@ enum POP3FMP_REQUEST_STATES {
     VERSION_AUTH,
     /** bad request */
     END_BAD_REQUEST,
+    END_AUTH,
 };
 
 
-uint8_t* receivePOP3FMPRequest(buffer* b, uint8_t* response, int* size);
-int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* str, int* strIndex);
+uint8_t* receivePOP3FMPRequest(buffer* b, uint8_t* response, int* size, int* status);
+int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* str, int* strIndex, int* status);
 void consumeBuffer(buffer* b);
 
 #endif

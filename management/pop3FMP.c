@@ -54,6 +54,11 @@ void transitions(uint8_t feed, int* state, char* str, int* stringIndex)
 					{
 						*state = VERSION_AUTH;
 					}
+					else if(feed == 0x85)
+					{
+						strcpy(str, "PERMISSION DENIED");
+						*state = VERSION_PERMISSION_AUTH;
+					}
 					else if(feed == 0x0)
 					{
 
@@ -66,7 +71,6 @@ void transitions(uint8_t feed, int* state, char* str, int* stringIndex)
 					}
 					else if(feed == 0xFD)
 					{
-						*stringIndex = strlen("VERSION NOT SUPPORTED");
 						strcpy(str , "VERSION NOT SUPPORTED");
 						*state = VERSION_NOT_SUPPORTED;
 					}
@@ -125,7 +129,26 @@ void transitions(uint8_t feed, int* state, char* str, int* stringIndex)
 									{
 										*state = ERROR;
 									}
-									break;	
+									break;
+		case VERSION_AUTH: 			if(feed == 0x01)
+									{
+										*state = STRING;
+									}
+									else
+									{
+										*state = ERROR;
+									}
+									break;
+		case VERSION_PERMISSION_AUTH: 	if(feed == 0x01)
+										{
+											*state = END;
+										}
+										else
+										{
+											*state = ERROR;
+										}
+										break;
+		default: *state = ERROR;
 	}
 }
 

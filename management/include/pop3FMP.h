@@ -21,6 +21,7 @@ enum POP3FMP_RESPONSE_STATES {
     VERSION_AUTH,
     /** string */
     STRING,
+    VERSION_PERMISSION_AUTH,
 };
 
 void transitions(uint8_t feed, int* state, char* str, int* strIndex);

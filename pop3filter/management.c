@@ -30,6 +30,7 @@ struct management {
     /** buffers para ser usados read_buffer, write_buffer.*/
     uint8_t raw_buff_a[2048], raw_buff_b[2048]; // TODO: definir tamaño
     buffer read_buffer, write_buffer;
+    int status;
 };
 
 /** crea un nuevo `struct management' */
@@ -49,7 +50,7 @@ management_new(int client_fd) {
 
     buffer_init(&ret->read_buffer,  N(ret->raw_buff_a), ret->raw_buff_a);
     buffer_init(&ret->write_buffer, N(ret->raw_buff_b), ret->raw_buff_b);
-
+    ret->status = LOGGED_OUT;
 finally:
     return ret;
 }
@@ -141,8 +142,7 @@ management_write(struct selector_key *key) {
     uint8_t *response = (uint8_t*) calloc(MAX_RESPONSE, sizeof(uint8_t));
     int size = 0;
     ssize_t  n;
-
-    response = receivePOP3FMPRequest(&data->read_buffer, response, &size);
+    response = receivePOP3FMPRequest(&data->read_buffer, response, &size, &data->status);
     n = sctp_sendmsg(key->fd, response, size, NULL, 0, 0, 0, 0, 0, 0);
     if(n == 0)
     {

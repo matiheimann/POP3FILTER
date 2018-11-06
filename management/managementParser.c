@@ -100,12 +100,12 @@ unsigned char* readCommand(int* size)
 	}
 	else if(startsWith(buffer, "user ")) // TODO: check valid user
 	{
-		int strlength = strlen(buffer + 5);
-		ret = (unsigned char*) calloc(strlength + 3, sizeof(char));
+		int strlength = strlen(buffer + 5) + 1;
+		ret = (unsigned char*) calloc(strlength + 2, sizeof(char));
 		*(ret) = 0x83;
 		*(ret + 1) = 0x1;
-		strcpy((char*) ret + 2, buffer + 5);
-		*size = strlength + 3;
+		strcpy((char*) (ret + 2), buffer + 5);
+		*size = strlength + 2;
 	}
 	else if(startsWith(buffer, "password ")) // TODO: check valid password
 	{
