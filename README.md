@@ -2,6 +2,8 @@ TPE
 
 El documento utilizado en la presentación se encuentra en el directorio pc-2018b-02.
 El informe se encuentra en el directorio pc-2018b-02.
+
+Para crear los ejecutables:
 Moverse a la carpeta pc-2018b-02 con el comando cd.
 ejecutar make all para construir el trabajo.
 Los ejecutables se encontraran en los directorios: management, pop3filter y stripmime.
