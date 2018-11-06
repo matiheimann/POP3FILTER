@@ -226,7 +226,7 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 									(*strIndex)++;
 								}
 								break;
-		case SET_MESSAGE:	if(feed != '\0')
+		case SET_MESSAGE:	if(feed == '\0')
 							{
 								str[*strIndex] = feed;
 								strcpy((char*)(response + *size), "+OK");
@@ -239,7 +239,7 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 								(*strIndex)++;
 							}
 							break;
-		case SET_FILTER:	if(feed != '\0')
+		case SET_FILTER:	if(feed == '\0')
 							{
 								str[*strIndex] = feed;
 								if(isValidFile(str))
