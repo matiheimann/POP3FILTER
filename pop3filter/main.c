@@ -61,11 +61,10 @@ int main(int argc, char* const argv[])
         goto finally;
     }
 
-    /* Specify that a maximum of 5 streams will be available per socket */
     struct sctp_initmsg initmsg;
   	memset(&initmsg, 0, sizeof(initmsg));
- 	initmsg.sinit_num_ostreams = 5;
-  	initmsg.sinit_max_instreams = 5;
+ 	initmsg.sinit_num_ostreams = 1;
+  	initmsg.sinit_max_instreams = 1;
   	initmsg.sinit_max_attempts = 4;
   	setsockopt(managementServer, IPPROTO_SCTP, SCTP_INITMSG, &initmsg, sizeof(initmsg));
 

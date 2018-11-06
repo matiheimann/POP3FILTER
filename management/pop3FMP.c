@@ -14,7 +14,7 @@ int receivePOP3FMPResponse(buffer *b)
 	while(buffer_can_read(b))
 	{
 		transitions(buffer_read(b), &state, str, &stringIndex);
-		if((state == END && buffer_can_read(b)) || state == ERROR)
+		if(((state == END_CONNECTION || state == END) && buffer_can_read(b)) || state == ERROR)
 		{
 			consumeBuffer(b);
 			printf("SERVER ERROR\n");
@@ -27,7 +27,11 @@ int receivePOP3FMPResponse(buffer *b)
 			else
 				printf("%s\n", str);
 			stringIndex = 0;
-			return 1;
+			return 0;
+		}
+		if(state == END_CONNECTION)
+		{
+			return 2;
 		}
 	}
 	return 0;
@@ -61,8 +65,8 @@ void transitions(uint8_t feed, int* state, char* str, int* stringIndex)
 					}
 					else if(feed == 0x0)
 					{
-
-						*state = END;
+						strcpy(str, "CONNECTION CLOSED");
+						*state = VERSION_CONNECTION_CLOSED;
 					}
 					else if(feed == 0xFF)
 					{
@@ -142,6 +146,15 @@ void transitions(uint8_t feed, int* state, char* str, int* stringIndex)
 		case VERSION_PERMISSION_AUTH: 	if(feed == 0x01)
 										{
 											*state = END;
+										}
+										else
+										{
+											*state = ERROR;
+										}
+										break;
+		case VERSION_CONNECTION_CLOSED: if(feed == 0x01)
+										{
+											*state = END_CONNECTION;
 										}
 										else
 										{

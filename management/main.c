@@ -79,7 +79,8 @@ int main(int argc, char* const argv[])
 			if(n > 0)
 			{
 				buffer_write_adv(&b, n);
-				receivePOP3FMPResponse(&b);
+				if(receivePOP3FMPResponse(&b) == 2)
+					goto finally;
 			}
 			else
 			{

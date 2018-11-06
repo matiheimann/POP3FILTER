@@ -9,6 +9,7 @@ enum POP3FMP_RESPONSE_STATES {
     ERROR,
     /** la respuesta esta completa*/
     END,
+    END_CONNECTION,
     /** la respuesta es a version no soportada*/
     VERSION_NOT_SUPPORTED,
     /** bad request*/
@@ -17,6 +18,7 @@ enum POP3FMP_RESPONSE_STATES {
     VERSION_METRIC,
     /** version get set */
     VERSION_GET_SET,
+    VERSION_CONNECTION_CLOSED,
     /** version auth */
     VERSION_AUTH,
     /** string */

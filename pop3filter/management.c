@@ -149,7 +149,15 @@ management_write(struct selector_key *key) {
         // TODO: register error.
     }
     buffer_reset(&data->read_buffer);
-    free(response);
+    if(response[0] == 0x0)
+    {
+        free(response);
+        selector_unregister_fd(key->s, data->client_fd);
+    }
+    else
+    {
+        free(response);
+    }
     if(SELECTOR_SUCCESS != selector_set_interest_key(key, OP_READ)) {
        selector_unregister_fd(key->s, data->client_fd);
     }

@@ -59,7 +59,8 @@ uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size, int* stat
 			state == CLOSE_CONNECTION || 
 			state == END_SET_MEDIATYPES || 
 			state == END_SET_MESSAGE || 
-			state == END_SET_FILTER) && buffer_can_read(b)) 
+			state == END_SET_FILTER ||
+			state == CLOSE_CONNECTION) && buffer_can_read(b)) 
 			|| state == END_BAD_REQUEST)
 		{
 			consumeBuffer(b);
@@ -81,10 +82,6 @@ uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size, int* stat
 			*size = 2;
 			free(str);
 			return response;
-		}
-		else if(state == CLOSE_CONNECTION)
-		{
-			//  TODO: close connection?
 		}
 		else if(state == END_SET_MEDIATYPES)
 		{
