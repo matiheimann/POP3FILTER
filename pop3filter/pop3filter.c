@@ -1362,15 +1362,18 @@ send_next_response_multi_line(struct selector_key *key, buffer * b) {
 
     while (buffer_can_read(b)) {
         i++;
-        uint8_t c = buffer_read(b);
+        char c = buffer_read(b);
         const struct parser_event *e = parser_feed(ATTACHMENT(key)->orig.response.multi_parser, c);
-        if (e->type == POP3_MULTI_FIN) {
+        if (e->type == POP3_MULTI_FIN || c == EOF) {
             if (ATTACHMENT(key)->filter_pid != -1) {
                 finish_external_process(key);
             }
             parser_destroy(ATTACHMENT(key)->orig.response.multi_parser);
             ATTACHMENT(key)->orig.response.multi_parser = NULL;
             n = send(key->fd, ptr, i, MSG_NOSIGNAL);
+            if (c == EOF) {
+                n += send(key->fd, "\r\n.\r\n", 5, MSG_NOSIGNAL);
+            }
             return n;
         }
     }
@@ -1483,7 +1486,7 @@ write_next_response_multi_line_to_filter(struct selector_key *key, buffer * b) {
 
     while (buffer_can_read(b)) {
         i++;
-        uint8_t c = buffer_read(b);
+        char c = buffer_read(b);
         const struct parser_event *e = parser_feed(ATTACHMENT(key)->filter.filter.multi_parser, c);
         if (e->type == POP3_MULTI_FIN) {
             parser_destroy(ATTACHMENT(key)->filter.filter.multi_parser);
