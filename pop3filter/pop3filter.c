@@ -1047,14 +1047,16 @@ mallocEnv(char* s1, char* s2) {
 
 static void
 finish_external_process(struct selector_key *key) {
-    close(ATTACHMENT(key)->filter_in_fds[1]);
     close(ATTACHMENT(key)->filter_out_fds[0]);
+
     selector_unregister_fd(key->s, ATTACHMENT(key)->filter_in_fds[1]);
     selector_unregister_fd(key->s, ATTACHMENT(key)->filter_out_fds[0]);
+
     ATTACHMENT(key)->filter_in_fds[0] = -1;
     ATTACHMENT(key)->filter_in_fds[1] = -1;
     ATTACHMENT(key)->filter_out_fds[0] = -1;
     ATTACHMENT(key)->filter_out_fds[1] = -1;
+
     waitpid(ATTACHMENT(key)->filter_pid, NULL, 0);
     ATTACHMENT(key)->filter_pid = -1;
 
@@ -1364,16 +1366,13 @@ send_next_response_multi_line(struct selector_key *key, buffer * b) {
         i++;
         char c = buffer_read(b);
         const struct parser_event *e = parser_feed(ATTACHMENT(key)->orig.response.multi_parser, c);
-        if (e->type == POP3_MULTI_FIN || c == EOF) {
+        if (e->type == POP3_MULTI_FIN) {
             if (ATTACHMENT(key)->filter_pid != -1) {
                 finish_external_process(key);
             }
             parser_destroy(ATTACHMENT(key)->orig.response.multi_parser);
             ATTACHMENT(key)->orig.response.multi_parser = NULL;
             n = send(key->fd, ptr, i, MSG_NOSIGNAL);
-            if (c == EOF) {
-                n += send(key->fd, "\r\n.\r\n", 5, MSG_NOSIGNAL);
-            }
             return n;
         }
     }
@@ -1493,6 +1492,9 @@ write_next_response_multi_line_to_filter(struct selector_key *key, buffer * b) {
             ATTACHMENT(key)->filter.filter.multi_parser = NULL;
             n = write(key->fd, ptr, i);
             metrics->bytesTransferred += n;
+
+            close(ATTACHMENT(key)->filter_in_fds[1]);
+
             return n;
         }
     }
