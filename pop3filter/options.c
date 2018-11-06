@@ -234,7 +234,6 @@ char * strcatFixStrings(char* s1, char* s2)
 	char* aux = calloc((strlen(s1) + strlen(s2) + 1), sizeof(char));
 	strcat(aux, s1);
 	strcat(aux, s2);
-	printf("%s\n", aux);
 	return aux;
 }
 
