@@ -22,7 +22,6 @@ int receivePOP3FMPResponse(buffer *b)
 		}
 		if(state == END)
 		{
-			str[stringIndex] = '\0';
 			if(strlen(str) == 0)
 				printf("The field is empty\n");
 			else
@@ -62,7 +61,7 @@ void transitions(uint8_t feed, int* state, char* str, int* stringIndex)
 					}
 					else if(feed == 0xFF)
 					{
-						strcpy(str , "BAD REQUEST");
+						strcpy(str ,"BAD REQUEST");
 						*state = VERSION_BAD_REQUEST;
 					}
 					else if(feed == 0xFD)
@@ -114,6 +113,7 @@ void transitions(uint8_t feed, int* state, char* str, int* stringIndex)
 									break;
 		case STRING:				if(feed == '\0')
 									{
+										str[*stringIndex] = feed;
 										*state = END;
 									}
 									else if(feed >= 32 && feed <= 126)

@@ -4,6 +4,7 @@
 #include <ctype.h>
 
 #include "managementParser.h"
+#include "mediatypes.h"
 
 #define BUFFER_COMMAND_SIZE 200
 
@@ -67,7 +68,7 @@ unsigned char* readCommand(int* size)
 		*(ret + 2) = 0x2;
 		*size = 3;
 	}
-	else if(startsWith(buffer, "set mediatypes ") && checkValidMediaTypes(buffer + 15))
+	else if(startsWith(buffer, "set mediatypes ") && checkMediaTypes(buffer + 15))
 	{
 		int strlength = strlen(buffer + 15) + 1;
 		ret = (unsigned char*) calloc(strlength + 3, sizeof(char));
@@ -147,20 +148,6 @@ int startsWith(const char* str, const char* start)
 	if(*str == 0 && *start != 0)
 		return 0;
 	return 1;
-}
-
-int checkValidMediaTypes(char * str)
-{
-	int i = 0;
-	while(str[i]) 
-	{
-		if(!(isalnum(str[i]) || (str[i] == ',' && str[i + 1] != ',') || str[i] == '/'))
-		{
-			return 0;
-		}
-		i++;
-	}
-	return (i != 0 && str[i - 1] == ',')? 0 : 1; 
 }
 
 void helpMessage()
