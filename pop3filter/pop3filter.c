@@ -1104,7 +1104,12 @@ response_read(struct selector_key *key)
             ATTACHMENT(key)->filter_pid != -1) {
             selector_status ss = SELECTOR_SUCCESS;
             ss |= selector_set_interest_key(key, OP_NOOP);
-            ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_in_fds[1], OP_WRITE);
+            if (poll(&(struct pollfd){ .fd = ATTACHMENT(key)->filter_in_fds[1], .events = POLLOUT }, 1, 0) == 1) {
+                ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_in_fds[1], OP_WRITE);
+            }
+            else {
+                ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_out_fds[0], OP_READ);
+            }
             ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
         }
         else {
@@ -1251,7 +1256,13 @@ response_write(struct selector_key *key)
             if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
                 selector_status ss = SELECTOR_SUCCESS;
                 ss |= selector_set_interest_key(key, OP_NOOP);
-                ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_out_fds[0], OP_READ);
+                if (ATTACHMENT(key)->filter.filter.multi_parser != NULL && 
+                    poll(&(struct pollfd){ .fd = ATTACHMENT(key)->filter_in_fds[1], .events = POLLOUT }, 1, 0) == 1) {
+                    ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_in_fds[1], OP_WRITE);
+                }
+                else {
+                    ss |= selector_set_interest(key->s, ATTACHMENT(key)->filter_out_fds[0], OP_READ);
+                }
                 ret = ss == SELECTOR_SUCCESS ? FILTER : ERROR;
             }
             else {
@@ -1404,7 +1415,7 @@ filter_read(struct selector_key *key)
 
     ptr = buffer_write_ptr(b, &count);
     n = read(key->fd, ptr, count);
-    //printf("leyendo del filter\n");
+    printf("leyendo del filter\n");
 
     if(n > 0) {
         buffer_write_adv(b, n);
@@ -1434,7 +1445,7 @@ filter_write(struct selector_key *key)
     ssize_t  n;
 
     n = write_next_response_multi_line_to_filter(key, b);
-    //printf("escribiendo en el filter\n");
+    printf("escribiendo en el filter\n");
 
     if(n == -1) {
         ret = ERROR;
