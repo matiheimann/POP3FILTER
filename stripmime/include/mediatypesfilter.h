@@ -83,5 +83,6 @@ ctx* initcontext();
 void destroycontext(ctx* context);
 void restartcontext(ctx* context);
 char* bytestuffmessage(char* fm);
+void nolinefoldinganalisis(ctx* context, char* buffer, int i);
 
 #endif

@@ -25,6 +25,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 		n = read(STDIN_FILENO, buffer, 4096);
 		for(int i = 0; i < n; i++)
 		{
+			//printf("%d\n", peekInt(context->actions));
 			switch(peekInt(context->actions))
 			{
 				/*Empieza una nueva linea, se verifica si hay line folding y si hace falta revisar headers
@@ -32,42 +33,12 @@ void filteremail(char* censoredMediaTypes, char* fm)
 
 				case NEW_LINE:
 					popInt(context->actions);
+
 					/*No hay line folding, es un nuevo header*/
 					if(!isspace(buffer[i]))
 					{
-						/*Es nueva linea, entonces, se debe analizar de nuevo.*/
-						if(peekInt(context->actions) == IGNORE_UNTIL_NEW_LINE)
-						{
-							popInt(context->actions);
-						}
-						/*Analizo si es content-type*/
-						else if(peekInt(context->actions) == CHECKING_CONTENT_TYPE)
-						{
-							popInt(context->actions);
-							checkmediatypes(context->ctp, '\r');
-							/*Como lo es verifico que sea un match para censurar*/
-							if(context->ctp->matchfound == NORMAL_MATCH)
-							{
-								write(STDOUT_FILENO, "text/plain;\r\n", strlen("text/plain;\r\n"));
-								context->contenttypedeclared = 1;
-								censored = 1;
-								
-							}
-							else
-							{
-								write(STDOUT_FILENO, 
-									context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
-									context->ctp->index);
-								write(STDOUT_FILENO, "\r\n", 2);
-								context->contenttypedeclared = 1;
-								if(context->encondingdeclared)
-								{
-									write(STDOUT_FILENO, context->encondingselected, 
-										strlen(context->encondingselected));
-									write(STDOUT_FILENO, "\r\n", 2);
-								}
-							}
-						}
+
+						nolinefoldinganalisis(context, buffer, i);
 						/*No quedan headers relevantes*/
 						if(!context->contenttypedeclared ||
 						 (!context->encondingdeclared && censored) ||
@@ -92,8 +63,6 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					/*Hay line folding, no hay nueva linea*/
 					else if(isspace(buffer[i]) && buffer[i] != '\r')
 					{
-						/*Solo se popea ya que corresponde a line folding, por lo tanto,
-						se vuelve a la accion anterior.*/
 						if(peekInt(context->actions) != CHECKING_CONTENT_TYPE &&
 							peekInt(context->actions) != CHECKING_TRANSFER_ENCODING){
 							write(STDOUT_FILENO, buffer + i, 1);
@@ -102,15 +71,14 @@ void filteremail(char* censoredMediaTypes, char* fm)
 								pushInt(context->actions, WAIT_FOR_NEW_LINE);
 							}
 						}
+						else if(peekInt(context->actions) == CHECKING_TRANSFER_ENCODING)
+						{
+							addchar(context->extra, buffer[i]);
+						}
 					}
 					else if(buffer[i] == '\r')
 					{
-						if(peekInt(context->actions) == CHECKING_TRANSFER_ENCODING)
-						{
-							endextrainformation(context->extra);
-							context->encondingselected = context->extra->buff;
-							context->extra = NULL;
-						}
+						nolinefoldinganalisis(context, buffer, i);
 						pushInt(context->actions, CARRY_RETURN_END_OF_HEADERS);
 					}
 					break;
@@ -196,12 +164,8 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					{
 						addchar(context->extra, '\n');
 						endextrainformation(context->extra);
-						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
-						write(STDOUT_FILENO, "Content-Transfer-Enconding: ", strlen("Content-Transfer-Enconding: "));
-						write(STDOUT_FILENO, context->encondingselected, strlen(context->encondingselected));
-						write(STDOUT_FILENO, "\r\n", 2);
+						write(STDOUT_FILENO, context->extra->buff, context->extra->size);						
 						context->extra = NULL;
-						popInt(context->actions);
 						pushInt(context->actions, IGNORE_CARRY_RETURN); 
 					}
 					break;
@@ -248,7 +212,9 @@ void filteremail(char* censoredMediaTypes, char* fm)
 							}
 							else
 							{
-								
+								popInt(context->actions);
+								context->encondingdeclared = 1;
+								pushInt(context->actions, CHECKING_TRANSFER_ENCODING);
 							}
 						}
 						else
@@ -660,4 +626,56 @@ char* bytestuffmessage(char* fm)
 
 	return (char*)realloc(ret, (j+1)*sizeof(char));
 
+}
+
+void nolinefoldinganalisis(ctx* context, char* buffer, int i)
+{
+	if(peekInt(context->actions) == IGNORE_UNTIL_NEW_LINE)
+	{
+		popInt(context->actions);
+	}
+	/*Termino de imprimir el content-type e imprimo el encoding*/
+	else if(peekInt(context->actions) == PRINT_TRANSFER_ENCODING)
+	{
+		popInt(context->actions);
+		write(STDOUT_FILENO, "Content-Transfer-Enconding: ", strlen("Content-Transfer-Enconding: "));
+		write(STDOUT_FILENO, context->encondingselected, strlen(context->encondingselected));
+		write(STDOUT_FILENO, "\r\n", 2);
+	}
+	/*Analizo si es content-type*/
+	else if(peekInt(context->actions) == CHECKING_CONTENT_TYPE)
+	{
+		popInt(context->actions);
+		checkmediatypes(context->ctp, '\r');
+		/*Como lo es verifico que sea un match para censurar*/
+		if(context->ctp->matchfound == NORMAL_MATCH)
+		{
+			write(STDOUT_FILENO, "text/plain;\r\n", strlen("text/plain;\r\n"));
+			context->contenttypedeclared = 1;
+			censored = 1;
+			
+		}
+		else
+		{
+			write(STDOUT_FILENO, 
+				context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
+				context->ctp->index);
+			write(STDOUT_FILENO, "\r\n", 2);
+			context->contenttypedeclared = 1;
+			if(context->encondingdeclared)
+			{
+				write(STDOUT_FILENO, context->encondingselected, 
+					strlen(context->encondingselected));
+				write(STDOUT_FILENO, "\r\n", 2);
+			}
+		}
+	}
+	else if(peekInt(context->actions) == CHECKING_TRANSFER_ENCODING)
+	{
+		endextrainformation(context->extra);
+		context->encondingselected = malloc(context->extra->size + 1);
+		strcpy(context->encondingselected, context->extra->buff);
+		context->extra = NULL;
+		popInt(context->actions);
+	}	
 }
