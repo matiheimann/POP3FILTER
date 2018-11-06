@@ -18,6 +18,10 @@ int isValidMediaType(char* mediatype)
 				{
 					return (mediatype[i+1] == 0 && mediatype[i-1] == '/') ? 1 : 0;
 				}
+				else if(mediatypes[i] == '-')
+				{
+					return 1;
+				}
 				else
 				{
 					return 0;
