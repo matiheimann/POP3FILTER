@@ -10,6 +10,9 @@ int main(int argc, char  *argv[])
 	char* filterMessage = getenv("FILTER_MSG");
 	char* censoredMediaTypes = getenv("FILTER_MEDIAS");
 
+	filterMessage= argv[1];
+	censoredMediaTypes = argv[2];	
+
 
 	if(filterMessage == NULL)
 	{
