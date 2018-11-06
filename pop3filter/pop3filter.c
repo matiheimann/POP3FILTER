@@ -1588,7 +1588,6 @@ pop3filter_close(struct selector_key *key) {
 
     if(ERROR == st || DONE == st) {
         pop3filter_destroy(ATTACHMENT(key));
-        metrics->concurrentConnections--;
     }
 }
 
@@ -1602,6 +1601,7 @@ pop3filter_done(struct selector_key *key) {
             ATTACHMENT(key)->filter_out_fds[0],
             ATTACHMENT(key)->filter_out_fds[1],
     };
+
     for(unsigned i = 0; i < N(fds); i++) {
         if(fds[i] != -1) {
             if(SELECTOR_SUCCESS != selector_unregister_fd(key->s, fds[i])) {
@@ -1609,6 +1609,11 @@ pop3filter_done(struct selector_key *key) {
             }
             close(fds[i]);
         }
+    }
+
+    if (ATTACHMENT(key)->filter_pid != -1) {
+        waitpid(ATTACHMENT(key)->filter_pid, NULL, 0);
+        ATTACHMENT(key)->filter_pid = -1;
     }
 
     metrics->concurrentConnections--;
