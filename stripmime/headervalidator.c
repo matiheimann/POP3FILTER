@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <ctype.h>
+#include <string.h>
 
 #include "headervalidator.h"
 
@@ -8,7 +9,7 @@ headervalidator* initheadervalidator()
 	headervalidator* hv = malloc(sizeof(headervalidator));
 	hv->headers = malloc(sizeof(char*) * 4);
 	hv->headers[0] = "content-type";
-	hv->headers[1] = "content-transfer-enconding";
+	hv->headers[1] = "content-transfer-encoding";
 	hv->headers[2] = "content-length";
 	hv->headers[3] = "content-md5";
 	hv->isvalid = malloc(sizeof(int) * 4);
@@ -31,7 +32,11 @@ int checkheader(headervalidator* hv, char c)
 		if(hv->isvalid[i])
 		{
 			hv->lastmatch = i;
-			if(c == ':' && hv->headers[i][hv->index] == 0)
+			if(hv->index > (int)strlen(hv->headers[i]))
+			{
+				hv->isvalid[i] = 0;
+			}
+			else if(c == ':' && hv->headers[i][hv->index] == 0)
 			{
 				hv->matchfound = i+1;
 				return 1;
