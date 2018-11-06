@@ -639,13 +639,8 @@ hello_write(struct selector_key *key)
     } else {
         selector_status ss = SELECTOR_SUCCESS;
         ss |= selector_set_interest_key(key, OP_NOOP);
-        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+        ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_WRITE);
         ret = SELECTOR_SUCCESS == ss ? CAPA : ERROR;
-
-        if (ret == CAPA) {
-            char * msg = "CAPA\r\n";
-            send(ATTACHMENT(key)->origin_fd, msg, strlen(msg), MSG_NOSIGNAL);
-        }
     }
 
     return ret;
@@ -743,6 +738,24 @@ capa_read(struct selector_key *key)
 
     if(ret == ERROR) {
         print_error_message("error reading CAPA response from origin");
+    }
+    return ret;
+}
+
+static unsigned
+capa_write(struct selector_key *key) {
+    enum pop3filter_state  ret    = CAPA;
+
+    char * msg = "CAPA\r\n";
+    send(ATTACHMENT(key)->origin_fd, msg, strlen(msg), MSG_NOSIGNAL);
+
+    selector_status ss = SELECTOR_SUCCESS;
+    ss |= selector_set_interest_key(key, OP_NOOP);
+    ss |= selector_set_interest(key->s, ATTACHMENT(key)->origin_fd, OP_READ);
+    ret = SELECTOR_SUCCESS == ss ? CAPA : ERROR;
+
+    if(ret == ERROR) {
+        print_error_message("error writing CAPA request to origin");
     }
     return ret;
 }
@@ -1543,6 +1556,7 @@ static const struct state_definition client_statbl[] = {
         .state            = CAPA,
         .on_arrival       = capa_init,
         .on_read_ready    = capa_read,
+        .on_write_ready   = capa_write,
         .on_departure     = capa_close,
     },{
         .state            = REQUEST,
