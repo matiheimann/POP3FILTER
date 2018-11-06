@@ -204,15 +204,15 @@ void setOriginPort(char* port)
 
 void setCommand(char* cmd)
 {
-	if(isValidFile(cmd))
-	{
+	/*if(isValidFile(cmd))
+	{*/
 		options->command = cmd;	
-	}
+	/*}
 	else
 	{
 		printf("%s is not a valid file to use as command\n", cmd);
 		exit(1);
-	}
+	}*/
 	
 }
 
