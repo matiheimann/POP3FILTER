@@ -126,12 +126,18 @@ management_read(struct selector_key *key) {
     ptr = buffer_write_ptr(&data->read_buffer, &count);
     n = sctp_recvmsg(key->fd, ptr, count, NULL, 0, 0, 0);
 
-    if(n > 0) {
-        buffer_write_adv(&data->read_buffer, n);
-    }
+    if (n != 0) {
 
-	if(SELECTOR_SUCCESS != selector_set_interest_key(key, OP_WRITE)) {
-       selector_unregister_fd(key->s, data->client_fd);
+        if(n > 0) {
+            buffer_write_adv(&data->read_buffer, n);
+        }
+
+	    if(SELECTOR_SUCCESS != selector_set_interest_key(key, OP_WRITE)) {
+            selector_unregister_fd(key->s, data->client_fd);
+        }
+    }
+    else {
+        selector_unregister_fd(key->s, data->client_fd);
     }
 }
 
@@ -144,22 +150,25 @@ management_write(struct selector_key *key) {
     ssize_t  n;
     response = receivePOP3FMPRequest(&data->read_buffer, response, &size, &data->status);
     n = sctp_sendmsg(key->fd, response, size, NULL, 0, 0, 0, 0, 0, 0);
-    if(n == 0)
+    if(n != 0)
     {
-        // TODO: register error.
+        buffer_reset(&data->read_buffer);
+        if(response[0] == 0x0)
+        {
+            free(response);
+            selector_unregister_fd(key->s, data->client_fd);
+        }
+        else
+        {
+            free(response);
+        }
+        if(SELECTOR_SUCCESS != selector_set_interest_key(key, OP_READ)) {
+            selector_unregister_fd(key->s, data->client_fd);
+        }
     }
-    buffer_reset(&data->read_buffer);
-    if(response[0] == 0x0)
-    {
+    else {
         free(response);
         selector_unregister_fd(key->s, data->client_fd);
-    }
-    else
-    {
-        free(response);
-    }
-    if(SELECTOR_SUCCESS != selector_set_interest_key(key, OP_READ)) {
-       selector_unregister_fd(key->s, data->client_fd);
     }
 }
 
