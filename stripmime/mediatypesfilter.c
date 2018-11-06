@@ -24,6 +24,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 		n = read(STDIN_FILENO, buffer, 4096);
 		for(int i = 0; i < n; i++)
 		{
+			printf("%d\n", peekInt(context->actions));
 			switch(peekInt(context->actions))
 			{
 				/*Empieza una nueva linea, se verifica si hay line folding y si hace falta revisar headers
