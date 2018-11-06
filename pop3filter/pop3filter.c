@@ -902,7 +902,6 @@ send_next_request(struct selector_key *key, buffer * b) {
 
     if (strcasecmp(cmd, "RETR") == 0) {
         ATTACHMENT(key)->client.request.cmd_type = MULTI_RETR;
-        ATTACHMENT(key)->retr_commands++;
     }   
     else if (strcasecmp(cmd, "LIST") == 0 && cmd_n == 1) {
         ATTACHMENT(key)->client.request.cmd_type = MULTI_LIST;
@@ -915,7 +914,6 @@ send_next_request(struct selector_key *key, buffer * b) {
     }
     else if (strcasecmp(cmd, "TOP") == 0) {
         ATTACHMENT(key)->client.request.cmd_type = MULTI_TOP;
-        ATTACHMENT(key)->top_commands++;
     }
     else if (strcasecmp(cmd, "USER") == 0) {
         ATTACHMENT(key)->client.request.cmd_type = USER;
@@ -924,16 +922,12 @@ send_next_request(struct selector_key *key, buffer * b) {
     }
     else if (strcasecmp(cmd, "PASS") == 0) {
         ATTACHMENT(key)->client.request.cmd_type = PASS;
-        print_login_info_message(ATTACHMENT(key)->client_addr, ATTACHMENT(key)->logged_in_username);
     }
     else if (strcasecmp(cmd, "DELE") == 0) {
         ATTACHMENT(key)->client.request.cmd_type = DELE;
-        ATTACHMENT(key)->dele_commands++;
     }   
     else if (strcasecmp(cmd, "QUIT") == 0) {
         ATTACHMENT(key)->client.request.cmd_type = QUIT;
-        print_logout_info_message(ATTACHMENT(key)->client_addr, ATTACHMENT(key)->logged_in_username, 
-        ATTACHMENT(key)->top_commands, ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
     }
     else {
         ATTACHMENT(key)->client.request.cmd_type = DEFAULT;
@@ -1010,7 +1004,6 @@ start_external_process(struct selector_key *key) {
         selector_fd_set_nio(ATTACHMENT(key)->filter_out_fds[0]) == -1) {
         return -1;
     }
-
 
     ATTACHMENT(key)->env_variables.filterMedias = mallocEnv("FILTER_MEDIAS=", options->censoredMediaTypes);
     ATTACHMENT(key)->env_variables.filterMessage = mallocEnv("FILTER_MSG=", options->replacementMessage);
@@ -1154,6 +1147,13 @@ response_write(struct selector_key *key)
         }
         else {
             if (is_multi_response(ATTACHMENT(key)->client.request.cmd_type)) {
+                if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
+                    ATTACHMENT(key)->retr_commands++;
+                }
+                else if (ATTACHMENT(key)->client.request.cmd_type == MULTI_TOP) {
+                    ATTACHMENT(key)->top_commands++;
+                }
+
                 ATTACHMENT(key)->orig.response.multi_parser = parser_init(parser_no_classes(), pop3_multi_parser());
                 if (ATTACHMENT(key)->client.request.cmd_type == MULTI_RETR) {
                     ATTACHMENT(key)->filter_pid = start_external_process(key);
@@ -1186,7 +1186,16 @@ response_write(struct selector_key *key)
                 }
             }
             else {
-                if (ATTACHMENT(key)->client.request.cmd_type == QUIT) { 
+                if (ATTACHMENT(key)->client.request.cmd_type == PASS) {
+                    print_login_info_message(ATTACHMENT(key)->client_addr, ATTACHMENT(key)->logged_in_username);
+                }
+                else if (ATTACHMENT(key)->client.request.cmd_type == DELE) {
+                    ATTACHMENT(key)->dele_commands++;
+                } 
+                else if (ATTACHMENT(key)->client.request.cmd_type == QUIT) { 
+                    print_logout_info_message(ATTACHMENT(key)->client_addr, ATTACHMENT(key)->logged_in_username, 
+                    ATTACHMENT(key)->top_commands, ATTACHMENT(key)->retr_commands, ATTACHMENT(key)->dele_commands);
+
                     while(ATTACHMENT(key)->client.request.next_cmd_type != NULL) {
                         struct next_request *aux = ATTACHMENT(key)->client.request.next_cmd_type;
                         ATTACHMENT(key)->client.request.next_cmd_type = aux->next;
@@ -1194,7 +1203,8 @@ response_write(struct selector_key *key)
                     }
                     ret = DONE;
                 }
-                else {
+
+                if (ret != DONE) {
                     if (ATTACHMENT(key)->origin_pipelining) {
                         struct next_request *aux = ATTACHMENT(key)->client.request.next_cmd_type;
                         selector_status ss = SELECTOR_SUCCESS;
