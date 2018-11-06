@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 #include "boundarycomparator.h"
 
@@ -17,6 +16,9 @@ boundarycomparator* initboundarycomparator(char* boundary)
 }
 int compareboundaries(boundarycomparator* bc, char c)
 {
+
+	/*Se verifica la validez del boundary planteado*/
+
 	if(c == '\r')
 	{
 		if(!bc->match)
@@ -25,6 +27,8 @@ int compareboundaries(boundarycomparator* bc, char c)
 		}
 		return 0;
 	}
+
+	/*Se verifica la presencia de ambos guiones*/
 
 	if(bc->index < 0)
 	{
@@ -38,6 +42,8 @@ int compareboundaries(boundarycomparator* bc, char c)
 		}
 		return 1;
 	}
+
+	/*Compara el valor del boundary*/
 
 	else if(bc->boundarylength <= bc->index)
 	{
@@ -60,6 +66,9 @@ int compareboundaries(boundarycomparator* bc, char c)
 			bc->endingboundary = 1;
 		}
 	}
+
+	/*Verifica los dos guiones de cierre en el caso que sea el boundary de cierre*/
+
 	else
 	{
 		if(bc->boundary[bc->index] != c)

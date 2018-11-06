@@ -1,8 +1,6 @@
 #include <ctype.h>
 #include <string.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
 #include "mediatypesfilter.h"
@@ -105,6 +103,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					checkmediatypes(context->ctp, buffer[i]);
 					addchar(context->extra, buffer[i]);
 
+					/*El content-type es censurable*/
 					if(context->ctp->matchfound == NORMAL_MATCH)
 					{
 						write(STDOUT_FILENO, "text/plain;\r\n", strlen("text/plain;\r\n"));
@@ -115,6 +114,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 						context->extra = NULL;
 						break;
 					}
+					/*La maquina de estados señala que no es censurable*/
 					else if(!context->ctp->stillValidCensored)
 					{
 						if(context->ctp->matchfound == MULTIPART_MATCH)
@@ -135,6 +135,8 @@ void filteremail(char* censoredMediaTypes, char* fm)
 							write(STDOUT_FILENO, context->extra->buff, context->extra->size);
 							context->extra = NULL;
 						}
+						/*No se multipart, ni message, ni cenurable, entonces, se verifica
+						si ya fue declarado su tranfer-encoding*/
 						else if(!context->ctp->stillValidExtras)
 						{
 							context->contenttypedeclared = 1;
@@ -250,7 +252,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					}
 					break;
 
-				/*Verifica el boundary y lo pushea a la pila de boundaries*/
+				/*Verifica el boundary del multipart y lo pushea a la pila de boundaries*/
 				case CHECKING_BOUNDARY:
 					if(context->bv == NULL)
 					{
@@ -261,6 +263,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					checkboundary(context->bv, buffer[i]);
 					addchar(context->extra, buffer[i]);
 
+					/*Si ya finalizo se pushea en la pila el boundary encontrado*/
 					if(context->bv->end)
 					{
 						endextrainformation(context->extra);
@@ -270,7 +273,9 @@ void filteremail(char* censoredMediaTypes, char* fm)
 						context->bv = NULL;
 						popInt(context->actions);
 						pushInt(context->actions, WAIT_FOR_NEW_LINE);
-					} 
+					}
+					/*En caso de no ser boundary, o no dar referencias de serlo. Se imprime hasta punto y
+					coma*/ 
 					else if(!context->bv->stillvalid)
 					{
 						endextrainformation(context->extra);
@@ -350,6 +355,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					pushInt(context->actions, NEW_LINE);
 					break;
 
+				/*Pasaje al body y elecccion de que hacer*/
 				case CARRY_RETURN_END_OF_HEADERS:
 					write(STDOUT_FILENO, "\n", 1);
 					popInt(context->actions);
@@ -397,6 +403,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					}
 					break;
 
+				/* Imprime hasta que aparece el boundary esperado */
 				case WAIT_UNTIL_BOUNDARY:
 
 					if(context->bc == NULL)
@@ -408,40 +415,15 @@ void filteremail(char* censoredMediaTypes, char* fm)
 						context->extra = initextrainformation(5);
 					}
 
+					/*Se fija en la maquina de estados que siga siendo posible que la linea actual
+					sea el boundary*/
 					compareboundaries(context->bc, buffer[i]);
 					addchar(context->extra, buffer[i]);
 					if(buffer[i] == '\r')
 					{
-						if(context->bc->match)
-						{
-							write(STDOUT_FILENO, "--", 2);
-							write(STDOUT_FILENO, context->bc->boundary, context->bc->boundarylength);
-							popInt(context->actions);
-							if(context->bc->endingboundary)
-							{
-								write(STDOUT_FILENO, "--\r\n", 4);
-								popString(context->boundaries);
-								if(peekString(context->boundaries) == NULL)
-								{
-									pushInt(context->actions, WAIT_UNTIL_END);
-								}
-								else
-								{
-									pushInt(context->actions, WAIT_UNTIL_BOUNDARY);
-								}
-							}
-							else
-							{
-								write(STDOUT_FILENO, "\r\n", 2);
-								pushInt(context->actions, CHECKING_HEADER);
-							}
-							pushInt(context->actions, IGNORE_CARRY_RETURN_BODY);
-							restartcontext(context);
-							break;
-						}
+						boundaryatcarryreturn(context);
 					}
-
-					if(!context->bc->stillvalid)
+					else if(!context->bc->stillvalid)
 					{
 						endextrainformation(context->extra);
 						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
@@ -480,42 +462,9 @@ void filteremail(char* censoredMediaTypes, char* fm)
 
 					if(buffer[i] == '\r')
 					{
-						if(context->bc->match)
-						{
-							write(STDOUT_FILENO, "--", 2);
-							write(STDOUT_FILENO, context->bc->boundary, context->bc->boundarylength);
-							popInt(context->actions);
-							if(context->bc->endingboundary)
-							{
-								write(STDOUT_FILENO, "--\r\n", 4);
-								popString(context->boundaries);
-								if(peekString(context->boundaries) == NULL)
-								{
-									pushInt(context->actions, WAIT_UNTIL_END);
-								}
-								else
-								{
-									pushInt(context->actions, WAIT_UNTIL_BOUNDARY);
-								}
-							}
-							else
-							{
-								write(STDOUT_FILENO, "\r\n", 2);
-								pushInt(context->actions, CHECKING_HEADER);
-							}
-							pushInt(context->actions, IGNORE_CARRY_RETURN_BODY);
-							restartcontext(context);
-							break;
-						}
-						else
-						{
-							pushInt(context->actions, IGNORE_CARRY_RETURN_BODY);
-							restartcontext(context);
-							break;
-						}
+						boundaryatcarryreturn(context);
 					}
-
-					if(!context->bc->stillvalid)
+					else if(!context->bc->stillvalid)
 					{
 						pushInt(context->actions, IGNORE_UNTIL_NEW_LINE_BODY);
 						restartcontext(context);
@@ -664,9 +613,8 @@ void nolinefoldinganalisis(ctx* context, char* buffer, int i)
 		}
 		else
 		{
-			write(STDOUT_FILENO, 
-				context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
-				context->ctp->index);
+			/*Imprimo todo lo que consumi previamente*/
+			write(STDOUT_FILENO, context->extra->buff, context->extra->size);
 			write(STDOUT_FILENO, "\r\n", 2);
 			context->contenttypedeclared = 1;
 			if(context->encondingdeclared)
@@ -676,6 +624,7 @@ void nolinefoldinganalisis(ctx* context, char* buffer, int i)
 				write(STDOUT_FILENO, "\r\n", 2);
 			}
 		}
+		context->extra = NULL;
 	}
 	else if(peekInt(context->actions) == CHECKING_TRANSFER_ENCODING)
 	{
@@ -685,4 +634,44 @@ void nolinefoldinganalisis(ctx* context, char* buffer, int i)
 		context->extra = NULL;
 		popInt(context->actions);
 	}	
+}
+
+/* Las acciones a validar para saber si el boundary es el de la linea
+y las acciones a realizar luego, sea o no . */
+int boundaryatcarryreturn(ctx* context)
+{
+	int ret = context->bc->match;
+	if(context->bc->match)
+	{
+		write(STDOUT_FILENO, "--", 2);
+		write(STDOUT_FILENO, context->bc->boundary, context->bc->boundarylength);
+		popInt(context->actions);
+		if(context->bc->endingboundary)
+		{
+			write(STDOUT_FILENO, "--\r\n", 4);
+			popString(context->boundaries);
+			if(peekString(context->boundaries) == NULL)
+			{
+				pushInt(context->actions, WAIT_UNTIL_END);
+			}
+			else
+			{
+				pushInt(context->actions, WAIT_UNTIL_BOUNDARY);
+			}
+		}
+		else
+		{
+			write(STDOUT_FILENO, "\r\n", 2);
+			pushInt(context->actions, CHECKING_HEADER);
+		}
+		pushInt(context->actions, IGNORE_CARRY_RETURN_BODY);
+		restartcontext(context);
+	}
+	else
+	{
+		pushInt(context->actions, IGNORE_CARRY_RETURN_BODY);
+		restartcontext(context);
+	}
+
+	return ret;
 }

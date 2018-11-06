@@ -84,7 +84,7 @@ void destroycontenttypevalidator(contentypevalidator* ctp)
 
 int checkmediatypes(contentypevalidator* ctp, char c)
 {
-
+	/*Señala fin de comentario si se cierra el parentesis*/
 	if(ctp->ignore)
 	{
 		if(c == ')')
@@ -93,7 +93,7 @@ int checkmediatypes(contentypevalidator* ctp, char c)
 		}
 		return 0;
 	}
-
+	/*Señala inicio de comentario*/
 	if(c == '(')
 	{
 		ctp->ignore = 1;
@@ -104,19 +104,25 @@ int checkmediatypes(contentypevalidator* ctp, char c)
 		return 0;
 	}
 
+	/*Se asume que ya dejan de ser valido los censurables. 
+	Maquina de estados de los content-type censurables*/
 	ctp->stillValidCensored = 0;
 	for(int i = 0; i < ctp->quantityMediaTypes; i++)
 	{
+		/*Se pregunta si el siguiente content-type a verificar es o no
+		valido, es decir, si puede matchear con el que esta siendo analizado*/
 		if(ctp->isValidCensored[i])
 		{
 			ctp->lastmatch = i;
 			/*Caracter a comparar en los media types*/
 			int carachter = ctp->startingIndex[i] + ctp->index;
+			/*Se fija si es wildcard*/
 			if(ctp->mediatypes[carachter] == '*')
 			{
 				ctp->matchfound = NORMAL_MATCH;
 				return 1;
 			}
+			/*Se fija si finaliza el content-type y hay match por ser exactamente el mismo*/
 			else if((c == ';' || isspace(c)) && (ctp->mediatypes[carachter] == 0 ||
 				ctp->mediatypes[carachter] == ','))
 			{
@@ -139,6 +145,10 @@ int checkmediatypes(contentypevalidator* ctp, char c)
 		}
 	}
 
+
+	/*Misma logica que el de censurables, sin embargo, este no tiene wildcard y
+	no se delimitan por comas, sino que es un array de char* */
+
 	ctp->stillValidExtras = 0;
 
 	for(int i = 0; i < 2; i++)
@@ -160,6 +170,8 @@ int checkmediatypes(contentypevalidator* ctp, char c)
 			}
 		}
 	}
+
+	/*En caso de seguir siendo valido se incrementa el indice*/
 
 	if(ctp->stillValidExtras || ctp->stillValidCensored)
 		(ctp->index)++;

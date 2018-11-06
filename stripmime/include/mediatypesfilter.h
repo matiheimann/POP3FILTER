@@ -66,7 +66,7 @@ typedef struct ctx
 	boundarycomparator* bc;
 	/*Stack para saber el proximo boundary a encontrar*/
 	stackstring* boundaries;
-	/*Buffer para informacion extra*/
+	/*Buffer para informacion, tiene como objetivo hacer menos syscalls*/
 	extrainformation* extra;
 
 
@@ -78,5 +78,6 @@ void destroycontext(ctx* context);
 void restartcontext(ctx* context);
 char* bytestuffmessage(char* fm);
 void nolinefoldinganalisis(ctx* context, char* buffer, int i);
+int boundaryatcarryreturn(ctx* context);
 
 #endif

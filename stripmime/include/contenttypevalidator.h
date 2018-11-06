@@ -12,7 +12,9 @@ typedef enum typesofmatches
 typedef struct contentypevalidator
 {
 	int quantityMediaTypes;
+	/*Flag si es de los censurables*/
 	int stillValidCensored;
+	/*Flag si es multipart o message*/
 	int stillValidExtras;
 	/*Media types censurables separados por ,*/
 	char* mediatypes;
@@ -22,6 +24,7 @@ typedef struct contentypevalidator
 	int* isValidCensored;
 	int* isValidExtras;
 	int* startingIndex;
+	/*Flag de comentario*/
 	int ignore;
 	int index;
 	int matchfound;

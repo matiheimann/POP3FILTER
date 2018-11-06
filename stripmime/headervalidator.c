@@ -26,6 +26,9 @@ headervalidator* initheadervalidator()
 
 int checkheader(headervalidator* hv, char c)
 {
+	/*Se verifica si los headers son los mismos, no son case-sensitive.
+	Compara por indice y ante cualquier diferencia se desactiva el flag de
+	validez del header*/
 	hv->stillvalid = 0;
 	for(int i = 0; i < 4; i++)
 	{

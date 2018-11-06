@@ -11,7 +11,7 @@ typedef enum matches
 
 typedef struct headervalidator
 {
-	
+	/*Headers relevantes*/
 	char** headers;
 	int index;
 	int* isvalid;
