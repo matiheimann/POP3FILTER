@@ -14,6 +14,7 @@
 #include "pop3FMP.h"
 #include "mediatypes.h"
 #include "options.h"
+#include "metrics.h"
 
 uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size)
 {
@@ -28,7 +29,7 @@ uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size)
 
 	if(buffer_can_read(b))
 	{
-		*size =2; // Set size of response
+		*size = 2; // Set size of response
 		if(buffer_read(b) != 0x1)
 		{
 			response[0] = 0xFD; // VERSION NOT SUPPORTED
@@ -55,16 +56,17 @@ uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size)
 		transitions(buffer_read(b), &state, response, size, str, &strIndex);
 		if(((state == END  || 
 			state == CLOSE_CONNECTION || 
-			END_SET_MEDIATYPES || 
-			END_SET_MESSAGE || 
-			END_SET_FILTER) && buffer_can_read(b)) 
+			state == END_SET_MEDIATYPES || 
+			state == END_SET_MESSAGE || 
+			state == END_SET_FILTER) && buffer_can_read(b)) 
 			|| state == END_BAD_REQUEST)
 		{
 			consumeBuffer(b);
 			response[0] = 0xFF;
 			response[1] = 0x1;
 			*size = 2;
-			break;
+			free(str);
+			return response;
 		}
 		else if(state == CLOSE_CONNECTION)
 		{
@@ -73,15 +75,25 @@ uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size)
 		else if(state == END_SET_MEDIATYPES)
 		{
 			options->censoredMediaTypes = str;
+			return response;
 		}
 		else if(state == END_SET_MESSAGE)
 		{
 			setReplacementMessage(str);
+			return response;
 		}
 		else if(state == END_SET_FILTER)
 		{
 			options->command = str;
+			return response;
 		}
+	}
+	if(state == END_BAD_REQUEST)
+	{
+		consumeBuffer(b);
+		response[0] = 0xFF;
+		response[1] = 0x1;
+		*size = 2;
 	}
 	free(str);
 	return response;
@@ -95,29 +107,33 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 		case START: if(feed == 0x01)
 					{
 						 response[0] = 0x01; //GET CONCURRENT CONNECTION
-						 strcpy((char*)(response + *size), "012345");
-						 *size += strlen("012345") + 1;
+						 getMetricAsString(str, metrics->concurrentConnections);
+						 strcpy((char*)(response + *size), str);
+						 *size += strlen(str) + 1;
 						 *state = END;
 					}
 					else if(feed == 0x02)
 					{
 						response[0] = 0x02; // HISTORICAL ACCESSES
-						strcpy((char*)(response + *size), "012345");
-						*size += strlen("012345") + 1;
+						getMetricAsString(str, metrics->historicConnections);
+						strcpy((char*)(response + *size), str);
+						*size += strlen(str) + 1;
 						*state = END;
 					}
 					else if(feed == 0x03)
 					{
 						response[0] = 0x03; // TRANSFERED BYTES
-						strcpy((char*)(response + *size), "012345");
-						*size += strlen("012345") + 1;
+						getMetricAsString(str, metrics->bytesTransferred);
+						strcpy((char*)(response + *size), str);
+						*size += strlen(str) + 1;
 						*state = END;
 					}
 					else if(feed == 0x04)
 					{
-						response[0] = 0x04; // FILTERED MAILS
-						strcpy((char*)(response + *size), "012345");
-						*size += strlen("012345") + 1;
+						response[0] = 0x04; // FILTERED MAILS 
+						getMetricAsString(str, metrics->mailsFiltered);
+						strcpy((char*)(response + *size), str);
+						*size += strlen(str) + 1;
 						*state = END;
 					}
 					else if(feed == 0x80)
@@ -173,6 +189,23 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 						*state = END_BAD_REQUEST;
 					}
 					break;
+		case SET: 	if(feed == 0x00)
+					{
+						*state = SET_MEDIATYPES;
+					}
+					else if(feed == 0x1)
+					{
+					  	*state = SET_MESSAGE;
+					}
+					else if(feed == 0x2)
+					{
+					  	*state = SET_FILTER;
+					}
+					else
+					{
+						*state = END_BAD_REQUEST;
+					}
+					break;
 		case SET_MEDIATYPES: 	if(feed == '\0')
 								{
 									str[*strIndex] = feed;
@@ -181,7 +214,6 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 										strcpy((char*)(response + *size), "+OK");
 										*size += strlen("+OK") + 1;
 										*state = END_SET_MEDIATYPES;
-										break;
 									}
 									else
 									{
@@ -194,7 +226,7 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 									(*strIndex)++;
 								}
 								break;
-		case SET_MESSAGE:	if(feed != '\0')
+		case SET_MESSAGE:	if(feed == '\0')
 							{
 								str[*strIndex] = feed;
 								strcpy((char*)(response + *size), "+OK");
@@ -207,7 +239,7 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 								(*strIndex)++;
 							}
 							break;
-		case SET_FILTER:	if(feed != '\0')
+		case SET_FILTER:	if(feed == '\0')
 							{
 								str[*strIndex] = feed;
 								if(isValidFile(str))

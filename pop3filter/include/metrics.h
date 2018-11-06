@@ -11,5 +11,6 @@ typedef struct {
 extern metrics_st * metrics;
 
 void setMetrics();
+void getMetricAsString(char* metric, unsigned int count);
 
 #endif

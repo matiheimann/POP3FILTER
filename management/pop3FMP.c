@@ -23,7 +23,10 @@ int receivePOP3FMPResponse(buffer *b)
 		if(state == END)
 		{
 			str[stringIndex] = '\0';
-			printf("%s\n", str);
+			if(strlen(str) == 0)
+				printf("The field is empty\n");
+			else
+				printf("%s\n", str);
 			stringIndex = 0;
 			return 1;
 		}
@@ -113,7 +116,7 @@ void transitions(uint8_t feed, int* state, char* str, int* stringIndex)
 									{
 										*state = END;
 									}
-									else if(feed == ',' || isalnum(feed))
+									else if(feed >= 32 && feed <= 126)
 									{
 										str[*stringIndex] = feed;
 										(*stringIndex)++;
