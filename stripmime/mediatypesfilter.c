@@ -40,11 +40,12 @@ void filteremail(char* censoredMediaTypes, char* fm)
 						{
 							popInt(context->actions);
 						}
-						/*Analizo el content-type*/
+						/*Analizo si es content-type*/
 						else if(peekInt(context->actions) == CHECKING_CONTENT_TYPE)
 						{
 							popInt(context->actions);
 							checkmediatypes(context->ctp, '\r');
+							/*Como lo es verifico que sea un match para censurar*/
 							if(context->ctp->matchfound == NORMAL_MATCH)
 							{
 								write(STDOUT_FILENO, "text/plain;\r\n", strlen("text/plain;\r\n"));
@@ -231,15 +232,15 @@ void filteremail(char* censoredMediaTypes, char* fm)
 							{
 								if(censored)
 								{
-									write(STDOUT_FILENO, "Content-Type-Enconding: 8-bit\r\n", 
-										strlen("Content-Type-Enconding: 8-bit\r\n"));
+									write(STDOUT_FILENO, "Content-Transfer-Enconding: 8-bit\r\n", 
+										strlen("Content-Transfer-Enconding: 8-bit\r\n"));
 									popInt(context->actions);
 									pushInt(context->actions, IGNORE_UNTIL_NEW_LINE);
 									context->encondingdeclared = 1;
 								}
 								else
 								{
-									write(STDOUT_FILENO, "Content-Type-Enconding:", strlen("Content-Type-Enconding:"));
+									write(STDOUT_FILENO, "Content-Transfer-Enconding:", strlen("Content-Transfer-Enconding:"));
 									popInt(context->actions);
 									pushInt(context->actions, WAIT_FOR_NEW_LINE);
 									context->encondingdeclared = 1;
@@ -301,8 +302,9 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					} 
 					else if(!context->bv->stillvalid)
 					{
-						write(STDOUT_FILENO, "boundary", context->bv->index);
-						write(STDOUT_FILENO, buffer + i, 1);
+						endextrainformation(context->extra);
+						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
+						context->extra = NULL;
 						context->bv = NULL;
 						pushInt(context->actions, WAIT_FOR_DOT_COMMA);
 
