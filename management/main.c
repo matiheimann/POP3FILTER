@@ -58,7 +58,7 @@ int main(int argc, char* const argv[])
 		err_msg = "unable to connect";
 		goto finally;
 	}
-	printf("Please enter a command and press enter.\n-help to ask for help\n");
+	printf("Please enter a command and press enter.\nhelp to ask for help\n");
 	buffer_init(&b,  N(raw_buff), raw_buff);
 	while(!done)
 	{

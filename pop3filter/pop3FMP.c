@@ -85,17 +85,22 @@ uint8_t* receivePOP3FMPRequest(buffer* b,uint8_t* response, int* size, int* stat
 		}
 		else if(state == END_SET_MEDIATYPES)
 		{
+			char* aux = options->censoredMediaTypes;
 			options->censoredMediaTypes = str;
+			free(aux);
 			return response;
 		}
 		else if(state == END_SET_MESSAGE)
 		{
 			setReplacementMessage(str);
+			free(str);
 			return response;
 		}
 		else if(state == END_SET_FILTER)
 		{
+			char* aux = options->command;
 			options->command = str;
+			free(aux);
 			return response;
 		}
 	}
@@ -264,16 +269,9 @@ int transitions(uint8_t feed, int* state, uint8_t* response, int * size, char* s
 		case SET_FILTER:	if(feed == '\0')
 							{
 								str[*strIndex] = feed;
-								if(isValidFile(str))
-								{
-									strcpy((char*)(response + *size), "+OK");
-									*size += strlen("+OK") + 1;
-									*state = END_SET_FILTER;
-								}
-								else
-								{
-									*state = END_BAD_REQUEST;
-								}
+								strcpy((char*)(response + *size), "+OK");
+								*size += strlen("+OK") + 1;
+								*state = END_SET_FILTER;
 							}
 							else
 							{

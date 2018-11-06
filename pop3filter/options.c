@@ -24,13 +24,16 @@ void setConfiguration(int argc, char* const argv[])
 	/* Initialize default values */
    	options = malloc(sizeof(*options));
 	options->errorFile = "/dev/null";
-	options->replacementMessage = "Parte reemplazada";
+	options->replacementMessage = (char*) calloc(250, sizeof(char));
+	strcpy(options->replacementMessage,"Parte reemplazada");
 	options->selectedReplacementMessage = 0;
-	options->censoredMediaTypes = "";
+	options->censoredMediaTypes = (char*) calloc(250, sizeof(char));
+	strcpy(options->censoredMediaTypes,"");
 	options->managementPort = 9090;
 	options->localPort = 1110;
 	options->originPort = 110;
-	options->command = "cat";
+	options->command = (char*) calloc(250, sizeof(char));
+	strcpy(options->command, "cat");
 	options->version = "1.0";
 
 	memset(&(options->pop3Address), 0, sizeof(options->pop3Address));
@@ -160,12 +163,16 @@ void setReplacementMessage(char* message)
 {
 	if(options->selectedReplacementMessage == 0)
 	{
-		options->replacementMessage = message;
+		strcpy(options->replacementMessage, message);
 		options->selectedReplacementMessage = 1;
 		return;
 	}
+	char* aux1 = options->replacementMessage;
 	options->replacementMessage = strcatFixStrings(options->replacementMessage, "\n");
-	options->replacementMessage = strcatFixStrings(options->replacementMessage, message); 
+	char* aux2 = options->replacementMessage;
+	options->replacementMessage = strcatFixStrings(options->replacementMessage, message);
+	free(aux1);
+	free(aux2);
 }
 
 void addCensoredMediaType(char* mediaType)
@@ -180,8 +187,12 @@ void addCensoredMediaType(char* mediaType)
 		options->censoredMediaTypes = mediaType;
 		return;
 	}
+	char* aux1 = options->censoredMediaTypes;
 	options->censoredMediaTypes = strcatFixStrings(options->censoredMediaTypes, ",");
+	char* aux2 = options->censoredMediaTypes;
 	options->censoredMediaTypes = strcatFixStrings(options->censoredMediaTypes, mediaType);
+	free(aux1);
+	free(aux2);
 }
 
 void setManagementPort(char* port)
@@ -206,7 +217,7 @@ void setCommand(char* cmd)
 {
 	/*if(isValidFile(cmd))
 	{*/
-		options->command = cmd;	
+	strcpy(options->command, cmd);
 	/*}
 	else
 	{
