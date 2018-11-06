@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <stdio.h>
 
 #include "mediatypesfilter.h"
 #include "contenttypevalidator.h"
@@ -406,6 +407,20 @@ void filteremail(char* censoredMediaTypes, char* fm)
 				/* Imprime hasta que aparece el boundary esperado */
 				case WAIT_UNTIL_BOUNDARY:
 
+					if(peekString(context->boundaries) == NULL)
+					{
+						popInt(context->actions);
+						if(censored)
+						{
+							pushInt(context->actions, IGNORE_UNTIL_END);
+						}
+						else
+						{
+							pushInt(context->actions, WAIT_UNTIL_END);
+						}
+						break;
+					}
+
 					if(context->bc == NULL)
 					{
 						restartcontext(context);
@@ -419,6 +434,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					sea el boundary*/
 					compareboundaries(context->bc, buffer[i]);
 					addchar(context->extra, buffer[i]);
+
 					if(buffer[i] == '\r')
 					{
 						boundaryatcarryreturn(context);
