@@ -25,7 +25,6 @@ void filteremail(char* censoredMediaTypes, char* fm)
 		n = read(STDIN_FILENO, buffer, 4096);
 		for(int i = 0; i < n; i++)
 		{
-			//printf("%d\n", peekInt(context->actions));
 			switch(peekInt(context->actions))
 			{
 				/*Empieza una nueva linea, se verifica si hay line folding y si hace falta revisar headers
@@ -37,7 +36,6 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					/*No hay line folding, es un nuevo header*/
 					if(!isspace(buffer[i]))
 					{
-
 						nolinefoldinganalisis(context, buffer, i);
 						/*No quedan headers relevantes*/
 						if(!context->contenttypedeclared ||
@@ -60,22 +58,28 @@ void filteremail(char* censoredMediaTypes, char* fm)
 							write(STDOUT_FILENO, buffer + i, 1);
 						}
 					}
-					/*Hay line folding, no hay nueva linea*/
+					/*Hay line folding, no hay nuevo header*/
 					else if(isspace(buffer[i]) && buffer[i] != '\r')
 					{
+						/*Me fijo si el estado actual corresponde a un header que no quiero 
+						o no se si debo mostrar el valor.*/
 						if(peekInt(context->actions) != CHECKING_CONTENT_TYPE &&
-							peekInt(context->actions) != CHECKING_TRANSFER_ENCODING){
+							peekInt(context->actions) != CHECKING_TRANSFER_ENCODING &&
+							peekInt(context->actions) != IGNORE_UNTIL_NEW_LINE){
 							write(STDOUT_FILENO, buffer + i, 1);
 							if(peekInt(context->actions) == -1)
 							{
 								pushInt(context->actions, WAIT_FOR_NEW_LINE);
 							}
 						}
+						/*Si es el valor del header content-transfer-encoding lo voy a querer guardar
+						para el futuro*/
 						else if(peekInt(context->actions) == CHECKING_TRANSFER_ENCODING)
 						{
 							addchar(context->extra, buffer[i]);
 						}
 					}
+					/*Llego al body del mail*/
 					else if(buffer[i] == '\r')
 					{
 						nolinefoldinganalisis(context, buffer, i);
@@ -83,18 +87,13 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					}
 					break;
 
-				case CARRY_RETURN:
-					popInt(context->actions);
-					pushInt(context->actions, NEW_LINE);
-					write(STDOUT_FILENO, buffer + i, 1);
-					break;
-
 				/*Se verifica si el content-type es censurable*/
 				case CHECKING_CONTENT_TYPE:
+					/*Inicializa el parser*/
 					if(context->ctp == NULL)
 					{
-						context->ctp = malloc(sizeof(contentypevalidator));
 						context->ctp = initcontenttypevalidator(censoredMediaTypes);
+						context->extra = initextrainformation(5);
 					}
 
 					if(buffer[i] == '\r')
@@ -104,6 +103,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					}	
 
 					checkmediatypes(context->ctp, buffer[i]);
+					addchar(context->extra, buffer[i]);
 
 					if(context->ctp->matchfound == NORMAL_MATCH)
 					{
@@ -112,6 +112,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 						censored = 1;
 						popInt(context->actions);
 						pushInt(context->actions, IGNORE_UNTIL_NEW_LINE);
+						context->extra = NULL;
 						break;
 					}
 					else if(!context->ctp->stillValidCensored)
@@ -122,8 +123,8 @@ void filteremail(char* censoredMediaTypes, char* fm)
 							context->contenttypedeclared = 1;
 							popInt(context->actions);
 							pushInt(context->actions, CHECKING_BOUNDARY);
-							write(STDOUT_FILENO, "multipart/", strlen("multipart/"));
-							break;
+							write(STDOUT_FILENO, context->extra->buff, context->extra->size);
+							context->extra = NULL;
 						}
 						else if(context->ctp->matchfound == MESSAGE_MATCH)
 						{
@@ -131,8 +132,8 @@ void filteremail(char* censoredMediaTypes, char* fm)
 							context->contenttypedeclared = 1;
 							popInt(context->actions);
 							pushInt(context->actions, WAIT_FOR_NEW_LINE);
-							write(STDOUT_FILENO, "message/", strlen("message/"));
-							break;
+							write(STDOUT_FILENO, context->extra->buff, context->extra->size);
+							context->extra = NULL;
 						}
 						else if(!context->ctp->stillValidExtras)
 						{
@@ -146,14 +147,13 @@ void filteremail(char* censoredMediaTypes, char* fm)
 							{
 								pushInt(context->actions, PRINT_TRANSFER_ENCODING);
 							}
-							write(STDOUT_FILENO, 
-								context->ctp->startingIndex[context->ctp->lastmatch] + context->ctp->mediatypes,
-								context->ctp->index);
-							write(STDOUT_FILENO, buffer + i, 1);
+							write(STDOUT_FILENO, context->extra->buff, context->extra->size);
+							context->extra = NULL;
 						}
 					}				
 					break;
 
+				/*Imprime hasta al final el content-type, luego imprime el encoding*/
 				case PRINT_TRANSFER_ENCODING:
 					if(context->extra == NULL)
 					{
@@ -180,20 +180,26 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					if(context->hv == NULL)
 					{
 						context->hv = initheadervalidator();
+						context->extra = initextrainformation(5);
 					}
+
 					checkheader(context->hv, buffer[i]);
+					addchar(context->extra, buffer[i]);
+
+					/**Busca coincidencia con header relevante*/
 					if(context->hv->matchfound != 0)
 					{
 						popInt(context->actions);
 						if(context->hv->matchfound == CONTENT_TYPE)
 						{
 							pushInt(context->actions, CHECKING_CONTENT_TYPE);
-							write(STDOUT_FILENO, "Content-type:", strlen("Content-type:"));
+							write(STDOUT_FILENO, context->extra->buff, context->extra->size);
 						}
 						else if(context->hv->matchfound == CONTENT_TRANSFER_ENCONDING)
 						{
 							if(context->contenttypedeclared)
 							{
+								/*Si esta censurado el valor por default es 8-bit*/
 								if(censored)
 								{
 									write(STDOUT_FILENO, "Content-Transfer-Enconding: 8-bit\r\n", 
@@ -204,7 +210,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 								}
 								else
 								{
-									write(STDOUT_FILENO, "Content-Transfer-Enconding:", strlen("Content-Transfer-Enconding:"));
+									write(STDOUT_FILENO, context->extra->buff, context->extra->size);
 									popInt(context->actions);
 									pushInt(context->actions, WAIT_FOR_NEW_LINE);
 									context->encondingdeclared = 1;
@@ -232,12 +238,11 @@ void filteremail(char* censoredMediaTypes, char* fm)
 						}
 						destroyheadervalidator(context->hv);
 						context->hv = NULL;
+						context->extra = NULL;
 					}
 					else if(!context->hv->stillvalid)
 					{
-						write(STDOUT_FILENO, context->hv->headers[context->hv->lastmatch], 
-							context->hv->index);
-						write(STDOUT_FILENO, buffer + i, 1);
+						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
 						context->hv = NULL;
 						context->extra = NULL;
 						popInt(context->actions);
@@ -285,11 +290,12 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					addchar(context->extra, buffer[i]);
 					if(buffer[i] == '\r')
 					{
+						addchar(context->extra, '\n');
 						endextrainformation(context->extra);
 						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
 						context->extra = NULL;
 						popInt(context->actions);
-						pushInt(context->actions, CARRY_RETURN); 
+						pushInt(context->actions, IGNORE_CARRY_RETURN); 
 					}
 					break;
 
@@ -314,7 +320,7 @@ void filteremail(char* censoredMediaTypes, char* fm)
 					addchar(context->extra, buffer[i]);
 					if(buffer[i] == '\r')
 					{
-						pushInt(context->actions, CARRY_RETURN);
+						addchar(context->extra, '\n');
 						endextrainformation(context->extra);
 						write(STDOUT_FILENO, context->extra->buff, context->extra->size);
 						context->extra = NULL;
@@ -628,6 +634,8 @@ char* bytestuffmessage(char* fm)
 
 }
 
+/*Se opera sobre algunos estados que solo finalizan al empezar un nuevo header,
+y en el caso que haya line folding estos estados deben permanecer activos*/
 void nolinefoldinganalisis(ctx* context, char* buffer, int i)
 {
 	if(peekInt(context->actions) == IGNORE_UNTIL_NEW_LINE)
@@ -640,9 +648,8 @@ void nolinefoldinganalisis(ctx* context, char* buffer, int i)
 		popInt(context->actions);
 		write(STDOUT_FILENO, "Content-Transfer-Enconding: ", strlen("Content-Transfer-Enconding: "));
 		write(STDOUT_FILENO, context->encondingselected, strlen(context->encondingselected));
-		write(STDOUT_FILENO, "\r\n", 2);
 	}
-	/*Analizo si es content-type*/
+	/*Analizo si el content-type debe ser censurable o no*/
 	else if(peekInt(context->actions) == CHECKING_CONTENT_TYPE)
 	{
 		popInt(context->actions);
